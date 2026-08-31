@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <RootNamespace>BuildnBits.Usage.Core</RootNamespace>
+    <Description>Shared usage models, JSON-RPC process handling, and provider adapters.</Description>
+  </PropertyGroup>
+</Project>

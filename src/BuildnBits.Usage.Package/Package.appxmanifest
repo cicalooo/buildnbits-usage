@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:uap3="http://schemas.microsoft.com/appx/manifest/uap/windows10/3"
+  xmlns:com="http://schemas.microsoft.com/appx/manifest/com/windows10"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  IgnorableNamespaces="uap uap3 com rescap">
+  <Identity Name="BuildnBits.Usage" Publisher="CN=BuildnBits-Dev" Version="1.0.0.0" />
+  <Properties>
+    <DisplayName>BuildnBits Usage</DisplayName>
+    <PublisherDisplayName>BuildnBits</PublisherDisplayName>
+    <Description>Codex and Grok subscription remaining usage in the notification area and Widgets Board.</Description>
+    <Logo>Images\StoreLogo.png</Logo>
+  </Properties>
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.22000.0" MaxVersionTested="10.0.26100.0" />
+    <PackageDependency
+      Name="Microsoft.WindowsAppRuntime.1.6"
+      MinVersion="6000.318.2304.0"
+      Publisher="CN=Microsoft Corporation, O=Microsoft Corporation, L=Redmond, S=Washington, C=US" />
+  </Dependencies>
+  <Resources>
+    <Resource Language="en-us" />
+  </Resources>
+  <Applications>
+    <Application Id="Tray" Executable="BuildnBits.Usage.Tray.exe" EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements
+        DisplayName="BuildnBits Usage"
+        Description="Codex and Grok remaining usage"
+        BackgroundColor="transparent"
+        Square150x150Logo="Images\Square150x150Logo.png"
+        Square44x44Logo="Images\Square44x44Logo.png" />
+      <Extensions>
+        <uap3:Extension Category="windows.appExtension">
+          <uap3:AppExtension Name="com.microsoft.windows.widgets" DisplayName="BuildnBits Usage" Id="BuildnBitsUsage" PublicFolder="Public">
+            <uap3:Properties>
+              <WidgetProvider>
+                <ProviderIcons>
+                  <Icon Path="Images\StoreLogo.png" />
+                </ProviderIcons>
+                <Activation>
+                  <CreateInstance ClassId="8F3E6B21-4C9A-4D71-9E2B-7A11C0D4E8A1" />
+                </Activation>
+                <Definitions>
+                  <Definition
+                    Id="BuildnBitsUsage"
+                    DisplayName="BuildnBits Usage"
+                    Description="Combined Codex and Grok remaining usage.">
+                    <Capabilities>
+                      <Capability>
+                        <Size Name="small" />
+                        <Size Name="medium" />
+                        <Size Name="large" />
+                      </Capability>
+                    </Capabilities>
+                    <ThemeResources>
+                      <Icons>
+                        <Icon Path="Images\StoreLogo.png" />
+                      </Icons>
+                    </ThemeResources>
+                  </Definition>
+                </Definitions>
+              </WidgetProvider>
+            </uap3:Properties>
+          </uap3:AppExtension>
+        </uap3:Extension>
+        <com:Extension Category="windows.comServer">
+          <com:ComServer>
+            <com:ExeServer Executable="BuildnBits.Usage.Widgets.exe" Arguments="-RegisterProcessAsComServer" DisplayName="BuildnBits Usage Widget">
+              <com:Class Id="8F3E6B21-4C9A-4D71-9E2B-7A11C0D4E8A1" DisplayName="BuildnBits Usage Widget Provider" />
+            </com:ExeServer>
+          </com:ComServer>
+        </com:Extension>
+      </Extensions>
+    </Application>
+  </Applications>
+  <Capabilities>
+    <rescap:Capability Name="runFullTrust" />
+  </Capabilities>
+</Package>

@@ -1,0 +1,11 @@
+* text=auto
+*.png binary
+*.ico binary
+*.zip binary
+*.sln text eol=crlf
+*.csproj text eol=crlf
+*.wapproj text eol=crlf
+*.ps1 text eol=lf
+*.cs text eol=lf
+*.md text eol=lf
+*.json text eol=lf
