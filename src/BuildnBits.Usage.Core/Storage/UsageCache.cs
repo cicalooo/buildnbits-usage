@@ -43,10 +43,11 @@ public sealed class UsageCache
                 return new CombinedUsageState(
                     FromCache(ProviderKind.Codex, doc.Codex),
                     FromCache(ProviderKind.Grok, doc.Grok),
+                    FromCache(ProviderKind.Agy, doc.Agy),
                     doc.LastSuccessfulRefreshUtc,
-                    doc.LastSuccessfulRefreshUtc);
+                    doc.LastAttemptUtc);
             }
-            catch (JsonException)
+            catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
             {
                 return CombinedUsageState.Empty;
             }
@@ -59,15 +60,33 @@ public sealed class UsageCache
         {
             Codex = ToCache(state.Codex),
             Grok = ToCache(state.Grok),
-            LastSuccessfulRefreshUtc = state.LastSuccessfulRefreshUtc
+            Agy = ToCache(state.Agy),
+            LastSuccessfulRefreshUtc = state.LastSuccessfulRefreshUtc,
+            LastAttemptUtc = state.LastAttemptUtc
         };
 
         lock (_sync)
         {
-            var tmp = _path + ".tmp";
-            File.WriteAllText(tmp, JsonSerializer.Serialize(doc, JsonOptions));
-            File.Copy(tmp, _path, overwrite: true);
-            File.Delete(tmp);
+            var tmp = _path + "." + Guid.NewGuid().ToString("N") + ".tmp";
+            try
+            {
+                File.WriteAllText(tmp, JsonSerializer.Serialize(doc, JsonOptions));
+                File.Move(tmp, _path, overwrite: true);
+            }
+            finally
+            {
+                try
+                {
+                    if (File.Exists(tmp))
+                    {
+                        File.Delete(tmp);
+                    }
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    // Preserve the original save exception, if any.
+                }
+            }
         }
     }
 
@@ -95,7 +114,8 @@ public sealed class UsageCache
         }
 
         Enum.TryParse<UsageStatus>(entry.Status, out var status);
-        var windows = entry.Windows.Select(w =>
+        var cachedWindows = entry.Windows ?? [];
+        var windows = cachedWindows.Select(w =>
             new UsageWindow(w.Label, w.DurationMinutes, w.UsedPercent, w.RemainingPercent, w.ResetsAtUtc)).ToList();
         var effective = status == UsageStatus.Ok ? UsageStatus.Stale : status;
         return new ProviderSnapshot(kind, effective, entry.PlanLabel, windows, entry.FetchedAtUtc, entry.StatusMessage);

@@ -22,11 +22,18 @@ public class RefreshStaleTests
                 [new UsageWindow("Weekly", null, 20, 80, DateTimeOffset.UtcNow.AddDays(3))], DateTimeOffset.UtcNow, null),
             new ProviderSnapshot(ProviderKind.Grok, UsageStatus.Error, null, [], DateTimeOffset.UtcNow, "429")
         ]);
+        var agy = new ScriptedProvider([
+            new ProviderSnapshot(ProviderKind.Agy, UsageStatus.Ok, "Pro",
+                [new UsageWindow("Gemini Models · Weekly Limit Remaining", 10080, 30, 70, DateTimeOffset.UtcNow.AddDays(5))],
+                DateTimeOffset.UtcNow, null)
+        ]);
 
-        using var service = new UsageRefreshService(codex, grok, cache, TimeSpan.FromHours(1));
+        using var service = new UsageRefreshService(codex, grok, agy, cache, TimeSpan.FromHours(1));
         await service.RefreshNowAsync();
         Assert.Equal(UsageStatus.Ok, service.Current.Codex.Status);
         Assert.Equal(90, service.Current.Codex.Windows[0].RemainingPercent);
+        Assert.Equal(UsageStatus.Ok, service.Current.Agy.Status);
+        Assert.Equal(70, service.Current.Agy.Windows[0].RemainingPercent);
 
         await service.RefreshNowAsync();
         Assert.Equal(UsageStatus.Stale, service.Current.Codex.Status);
@@ -55,6 +62,25 @@ public class RefreshStaleTests
         Assert.Equal(60, service.Current.Codex.Windows[0].RemainingPercent);
     }
 
+    [Fact]
+    public async Task One_provider_failure_does_not_hide_another_provider_success()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "bnb-refresh-" + Guid.NewGuid());
+        var cache = new UsageCache(dir);
+        var codex = new ThrowingProvider("codex unavailable");
+        var grok = new ScriptedProvider([
+            new ProviderSnapshot(ProviderKind.Grok, UsageStatus.Ok, "SuperGrok",
+                [new UsageWindow("Weekly", null, 25, 75, DateTimeOffset.UtcNow.AddDays(2))], DateTimeOffset.UtcNow, null)
+        ]);
+
+        using var service = new UsageRefreshService(codex, grok, cache, TimeSpan.FromHours(1));
+        await service.RefreshNowAsync();
+
+        Assert.Equal(UsageStatus.Error, service.Current.Codex.Status);
+        Assert.Equal(UsageStatus.Ok, service.Current.Grok.Status);
+        Assert.Equal(75, service.Current.Grok.Windows[0].RemainingPercent);
+    }
+
     private sealed class ScriptedProvider : IUsageProvider
     {
         private readonly Queue<ProviderSnapshot> _queue;
@@ -80,5 +106,11 @@ public class RefreshStaleTests
 
             return Task.FromResult(_last ?? CombinedUsageState.Empty.Codex);
         }
+    }
+
+    private sealed class ThrowingProvider(string message) : IUsageProvider
+    {
+        public Task<ProviderSnapshot> FetchAsync(CancellationToken cancellationToken) =>
+            Task.FromException<ProviderSnapshot>(new InvalidOperationException(message));
     }
 }

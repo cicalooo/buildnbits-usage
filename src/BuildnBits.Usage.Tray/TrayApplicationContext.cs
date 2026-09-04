@@ -1,5 +1,6 @@
 using System.Net.NetworkInformation;
 using BuildnBits.Usage.Core.Refresh;
+using BuildnBits.Usage.Core.Providers.Agy;
 using BuildnBits.Usage.Core.Storage;
 using BuildnBits.Usage.Tray.Icons;
 using BuildnBits.Usage.Tray.Startup;
@@ -20,7 +21,7 @@ public sealed class TrayApplicationContext : ApplicationContext
 
     public TrayApplicationContext()
     {
-        _refresh = new UsageRefreshService(cache: _cache);
+        _refresh = new UsageRefreshService(cache: _cache, agy: new AgyUsageClient());
         _settings = _settingsStore.Load();
         _launchAtLogin = LaunchAtLogin.IsEnabled();
 

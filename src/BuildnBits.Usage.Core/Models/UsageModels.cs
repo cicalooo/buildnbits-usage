@@ -3,7 +3,9 @@ namespace BuildnBits.Usage.Core.Models;
 public enum ProviderKind
 {
     Codex,
-    Grok
+    Grok,
+    Agy,
+    Antigravity = Agy
 }
 
 public enum UsageStatus
@@ -50,18 +52,56 @@ public sealed record CombinedUsageState(
     DateTimeOffset? LastSuccessfulRefreshUtc,
     DateTimeOffset? LastAttemptUtc)
 {
+    public ProviderSnapshot Agy { get; init; } = EmptyProvider(ProviderKind.Agy);
+
+    // Descriptive alias for callers that do not use the CLI name.
+    public ProviderSnapshot Antigravity
+    {
+        get => Agy;
+        init => Agy = value;
+    }
+
+    public CombinedUsageState(
+        ProviderSnapshot codex,
+        ProviderSnapshot grok,
+        ProviderSnapshot agy,
+        DateTimeOffset? lastSuccessfulRefreshUtc,
+        DateTimeOffset? lastAttemptUtc)
+        : this(codex, grok, lastSuccessfulRefreshUtc, lastAttemptUtc)
+    {
+        Agy = agy;
+    }
+
+    public CombinedUsageState(
+        ProviderSnapshot codex,
+        ProviderSnapshot grok,
+        DateTimeOffset? lastSuccessfulRefreshUtc,
+        DateTimeOffset? lastAttemptUtc,
+        ProviderSnapshot agy)
+        : this(codex, grok, agy, lastSuccessfulRefreshUtc, lastAttemptUtc)
+    {
+    }
+
     public static CombinedUsageState Empty { get; } = new(
         new ProviderSnapshot(ProviderKind.Codex, UsageStatus.Unknown, null, [], null, null),
         new ProviderSnapshot(ProviderKind.Grok, UsageStatus.Unknown, null, [], null, null),
         null,
-        null);
+        null)
+    {
+        Agy = EmptyProvider(ProviderKind.Agy)
+    };
+
+    private static ProviderSnapshot EmptyProvider(ProviderKind provider) =>
+        new(provider, UsageStatus.Unknown, null, [], null, null);
 }
 
 public sealed class CachedUsageDocument
 {
     public ProviderCacheEntry? Codex { get; set; }
     public ProviderCacheEntry? Grok { get; set; }
+    public ProviderCacheEntry? Agy { get; set; }
     public DateTimeOffset? LastSuccessfulRefreshUtc { get; set; }
+    public DateTimeOffset? LastAttemptUtc { get; set; }
 }
 
 public sealed class ProviderCacheEntry

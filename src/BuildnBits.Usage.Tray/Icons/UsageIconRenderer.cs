@@ -10,6 +10,7 @@ public static class UsageIconRenderer
 {
     public static readonly Color CodexColor = Color.FromArgb(16, 163, 127);
     public static readonly Color GrokColor = Color.FromArgb(200, 80, 40);
+    public static readonly Color AgyColor = Color.FromArgb(66, 133, 244);
 
     public static Icon Create(
         ProviderKind provider,
@@ -29,7 +30,13 @@ public static class UsageIconRenderer
             g.TextRenderingHint = TextRenderingHint.SingleBitPerPixelGridFit;
             g.Clear(Color.Transparent);
 
-            var accent = provider == ProviderKind.Codex ? CodexColor : GrokColor;
+            var accent = provider switch
+            {
+                ProviderKind.Codex => CodexColor,
+                ProviderKind.Grok => GrokColor,
+                ProviderKind.Agy => AgyColor,
+                _ => Color.Gray
+            };
             var fill = highContrast ? SystemColors.Window : Color.FromArgb(255, 18, 18, 20);
             var ink = highContrast ? SystemColors.WindowText : Color.White;
             if (highContrast)
@@ -37,7 +44,10 @@ public static class UsageIconRenderer
                 accent = SystemColors.WindowText;
             }
 
-            g.FillRectangle(new SolidBrush(fill), 0, 0, size, size);
+            using (var background = new SolidBrush(fill))
+            {
+                g.FillRectangle(background, 0, 0, size, size);
+            }
             using (var pen = new Pen(accent, 1f))
             {
                 g.DrawRectangle(pen, 0, 0, size - 1, size - 1);

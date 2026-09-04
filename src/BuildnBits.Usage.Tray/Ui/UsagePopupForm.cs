@@ -10,6 +10,7 @@ public sealed class UsagePopupForm : Form
     private readonly UsageCard _codexFive = new("Codex 5-hour", UsageIconRenderer.CodexColor);
     private readonly UsageCard _codexWeek = new("Codex 7-day", UsageIconRenderer.CodexColor);
     private readonly UsageCard _grokWeek = new("Grok weekly", UsageIconRenderer.GrokColor);
+    private readonly UsageCard _agyQuota = new("Google Antigravity [agy]", UsageIconRenderer.AgyColor);
     private readonly Label _status = new();
     private readonly Button _refresh = StyledButton("Refresh");
     private readonly Button _settings = StyledButton("Settings");
@@ -43,12 +44,12 @@ public sealed class UsagePopupForm : Form
             AutoSize = true,
             AutoSizeMode = AutoSizeMode.GrowAndShrink,
             ColumnCount = 1,
-            RowCount = 5,
+            RowCount = 6,
             Dock = DockStyle.Fill,
             Padding = new Padding(0)
         };
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 336));
-        foreach (var card in new[] { _codexFive, _codexWeek, _grokWeek })
+        foreach (var card in new[] { _codexFive, _codexWeek, _grokWeek, _agyQuota })
         {
             card.Margin = new Padding(0, 0, 0, 8);
             layout.Controls.Add(card);
@@ -94,14 +95,18 @@ public sealed class UsagePopupForm : Form
         BindCard(_codexFive, state.Codex.WindowByDuration(CodexWindowDurations.FiveHourMinutes), now);
         BindCard(_codexWeek, state.Codex.WindowByDuration(CodexWindowDurations.SevenDayMinutes), now);
         BindCard(_grokWeek, state.Grok.Weekly ?? state.Grok.Windows.FirstOrDefault(), now);
+        BindCard(_agyQuota, state.Agy.Windows.OrderBy(w => w.RemainingPercent).FirstOrDefault(), now);
 
         var last = state.LastSuccessfulRefreshUtc?.ToLocalTime().ToString("t") ?? "never";
         var stale = state.Codex.Status is UsageStatus.Stale or UsageStatus.Error ||
-                    state.Grok.Status is UsageStatus.Stale or UsageStatus.Error;
-        var detail = stale
-            ? state.Codex.StatusMessage ?? state.Grok.StatusMessage ?? "Showing last successful values."
-            : "Up to date.";
-        _status.Text = $"Updated {last} · Codex {state.Codex.Status} · Grok {state.Grok.Status}\n{detail}";
+                    state.Grok.Status is UsageStatus.Stale or UsageStatus.Error ||
+                    state.Agy.Status is UsageStatus.Stale or UsageStatus.Error;
+        var issueSnapshot = new[] { state.Codex, state.Grok, state.Agy }
+            .FirstOrDefault(s => s.Status is not UsageStatus.Ok and not UsageStatus.Unknown);
+        var detail = issueSnapshot?.StatusMessage ?? (stale
+            ? "Showing last successful values."
+            : "Up to date.");
+        _status.Text = $"Updated {last} · Codex {state.Codex.Status} · Grok {state.Grok.Status} · agy {state.Agy.Status}\n{detail}";
         _launch.Checked = launchAtLogin;
     }
 
@@ -124,7 +129,7 @@ public sealed class UsagePopupForm : Form
             ForeColor = SystemColors.WindowText;
             _status.ForeColor = SystemColors.GrayText;
             _launch.ForeColor = SystemColors.WindowText;
-            foreach (var card in new[] { _codexFive, _codexWeek, _grokWeek })
+            foreach (var card in new[] { _codexFive, _codexWeek, _grokWeek, _agyQuota })
             {
                 card.ForeColor = ForeColor;
                 card.BackColor = BackColor;
@@ -138,7 +143,7 @@ public sealed class UsagePopupForm : Form
         ForeColor = dark ? Color.White : Color.FromArgb(20, 20, 24);
         _status.ForeColor = dark ? Color.FromArgb(180, 180, 186) : Color.FromArgb(90, 90, 96);
         _launch.ForeColor = ForeColor;
-        foreach (var card in new[] { _codexFive, _codexWeek, _grokWeek })
+        foreach (var card in new[] { _codexFive, _codexWeek, _grokWeek, _agyQuota })
         {
             card.ForeColor = ForeColor;
             card.BackColor = BackColor;

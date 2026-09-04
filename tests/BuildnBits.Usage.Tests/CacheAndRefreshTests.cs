@@ -20,7 +20,12 @@ public class CacheAndRefreshTests
                 [new UsageWindow("Weekly", null, 40, 60, DateTimeOffset.UtcNow.AddDays(4))],
                 DateTimeOffset.UtcNow, null),
             DateTimeOffset.UtcNow,
-            DateTimeOffset.UtcNow);
+            DateTimeOffset.UtcNow)
+        {
+            Agy = new ProviderSnapshot(ProviderKind.Agy, UsageStatus.Ok, "Pro",
+                [new UsageWindow("Gemini Models · Weekly Limit Remaining", 10080, 5, 95, DateTimeOffset.UtcNow.AddDays(6))],
+                DateTimeOffset.UtcNow, null)
+        };
         cache.Save(state);
         var json = File.ReadAllText(cache.PathOnDisk);
         Assert.DoesNotContain("token", json, StringComparison.OrdinalIgnoreCase);
@@ -28,6 +33,8 @@ public class CacheAndRefreshTests
         var loaded = cache.Load();
         Assert.Equal(80, loaded.Codex.Windows[0].RemainingPercent);
         Assert.Equal(UsageStatus.Stale, loaded.Codex.Status);
+        Assert.Equal(95, loaded.Agy.Windows[0].RemainingPercent);
+        Assert.Equal(UsageStatus.Stale, loaded.Agy.Status);
     }
 
     [Fact]
@@ -39,6 +46,7 @@ public class CacheAndRefreshTests
         Assert.Contains("small", template);
         var data = UsageAdaptiveCard.DataJson(CombinedUsageState.Empty, DateTimeOffset.UtcNow);
         Assert.Contains("codexFiveRemaining", data);
+        Assert.Contains("agyRemaining", data);
     }
 
     [Fact]

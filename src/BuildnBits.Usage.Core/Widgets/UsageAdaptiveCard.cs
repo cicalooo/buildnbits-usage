@@ -35,6 +35,12 @@ public static class UsageAdaptiveCard
               "wrap": true
             },
             {
+              "type": "TextBlock",
+              "text": "Antigravity [agy] ${agyRemaining}% lowest weekly",
+              "$when": "${$host.widgetSize==\"small\"}",
+              "wrap": true
+            },
+            {
               "type": "Container",
               "$when": "${$host.widgetSize!=\"small\"}",
               "items": [
@@ -61,6 +67,21 @@ public static class UsageAdaptiveCard
                 {
                   "type": "TextBlock",
                   "text": "Weekly ${grokRemaining}% remaining · ${grokCountdown}",
+                  "wrap": true
+                },
+                {
+                  "type": "TextBlock",
+                  "text": "Google Antigravity [agy] ${agyPlan}",
+                  "weight": "Bolder"
+                },
+                {
+                  "type": "TextBlock",
+                  "text": "Lowest weekly pool ${agyRemaining}% remaining · ${agyCountdown}",
+                  "wrap": true
+                },
+                {
+                  "type": "TextBlock",
+                  "text": "Pools: ${agyPools}",
                   "wrap": true
                 },
                 {
@@ -92,6 +113,11 @@ public static class UsageAdaptiveCard
         var five = state.Codex.WindowByDuration(CodexWindowDurations.FiveHourMinutes);
         var week = state.Codex.WindowByDuration(CodexWindowDurations.SevenDayMinutes);
         var grok = state.Grok.Weekly ?? state.Grok.Windows.FirstOrDefault();
+        var agy = state.Agy.Windows.OrderBy(w => w.RemainingPercent).FirstOrDefault();
+        var agyPools = state.Agy.Windows.Count == 0
+            ? "unavailable"
+            : string.Join(" · ", state.Agy.Windows.Select(w =>
+                $"{w.Label} {PercentageMath.DisplayPercent(w.RemainingPercent)}%"));
         var data = new JsonObject
         {
             ["codexPlan"] = state.Codex.PlanLabel ?? "Codex",
@@ -102,7 +128,11 @@ public static class UsageAdaptiveCard
             ["grokPlan"] = state.Grok.PlanLabel ?? "Grok",
             ["grokRemaining"] = Display(grok),
             ["grokCountdown"] = ResetCountdown.Format(ResetCountdown.Remaining(grok?.ResetsAtUtc, nowUtc)),
-            ["statusLine"] = $"Updated {state.LastSuccessfulRefreshUtc?.ToLocalTime():g} · Codex {state.Codex.Status} · Grok {state.Grok.Status}"
+            ["agyPlan"] = state.Agy.PlanLabel ?? "Antigravity",
+            ["agyRemaining"] = Display(agy),
+            ["agyCountdown"] = ResetCountdown.Format(ResetCountdown.Remaining(agy?.ResetsAtUtc, nowUtc)),
+            ["agyPools"] = agyPools,
+            ["statusLine"] = $"Updated {state.LastSuccessfulRefreshUtc?.ToLocalTime():g} · Codex {state.Codex.Status} · Grok {state.Grok.Status} · agy {state.Agy.Status}"
         };
         return data.ToJsonString(new JsonSerializerOptions { WriteIndented = false });
     }

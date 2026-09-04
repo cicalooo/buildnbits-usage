@@ -10,6 +10,7 @@ public sealed class UsageRefreshService : IDisposable
 {
     private readonly IUsageProvider _codex;
     private readonly IUsageProvider _grok;
+    private readonly IUsageProvider? _agy;
     private readonly UsageCache _cache;
     private readonly TimeSpan _interval;
     private readonly Random _jitter = new();
@@ -26,13 +27,25 @@ public sealed class UsageRefreshService : IDisposable
         IUsageProvider? codex = null,
         IUsageProvider? grok = null,
         UsageCache? cache = null,
-        TimeSpan? interval = null)
+        TimeSpan? interval = null,
+        IUsageProvider? agy = null)
     {
         _codex = codex ?? new CodexUsageClient();
         _grok = grok ?? new GrokUsageClient();
+        _agy = agy;
         _cache = cache ?? new UsageCache();
         _interval = interval ?? TimeSpan.FromMinutes(10);
         _state = _cache.Load();
+    }
+
+    public UsageRefreshService(
+        IUsageProvider codex,
+        IUsageProvider grok,
+        IUsageProvider agy,
+        UsageCache? cache = null,
+        TimeSpan? interval = null)
+        : this(codex, grok, cache, interval, agy)
+    {
     }
 
     public void Start()
@@ -69,35 +82,33 @@ public sealed class UsageRefreshService : IDisposable
         try
         {
             var previous = _state;
-            ProviderSnapshot codex;
-            ProviderSnapshot grok;
-            try
-            {
-                var codexTask = _codex.FetchAsync(cancellationToken);
-                var grokTask = _grok.FetchAsync(cancellationToken);
-                await Task.WhenAll(codexTask, grokTask).ConfigureAwait(false);
-                codex = await codexTask.ConfigureAwait(false);
-                grok = await grokTask.ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                if (cancellationToken.IsCancellationRequested)
-                {
-                    throw;
-                }
+            var codexTask = FetchSafelyAsync(_codex, ProviderKind.Codex, cancellationToken);
+            var grokTask = FetchSafelyAsync(_grok, ProviderKind.Grok, cancellationToken);
+            var agyTask = _agy is null
+                ? null
+                : FetchSafelyAsync(_agy, ProviderKind.Agy, cancellationToken);
 
-                _state = PreserveOnFailure(previous, ex.Message);
-                StateChanged?.Invoke(this, _state);
-                return;
+            if (agyTask is null)
+            {
+                await Task.WhenAll(codexTask, grokTask).ConfigureAwait(false);
+            }
+            else
+            {
+                await Task.WhenAll(codexTask, grokTask, agyTask).ConfigureAwait(false);
             }
 
             var now = DateTimeOffset.UtcNow;
-            codex = Merge(previous.Codex, codex);
-            grok = Merge(previous.Grok, grok);
-            var success = IsSuccess(codex) || IsSuccess(grok);
+            var codex = Merge(previous.Codex, await codexTask.ConfigureAwait(false));
+            var grok = Merge(previous.Grok, await grokTask.ConfigureAwait(false));
+            var agy = agyTask is null
+                ? previous.Agy
+                : Merge(previous.Agy, await agyTask.ConfigureAwait(false));
+            var success = IsSuccess(codex) || IsSuccess(grok) ||
+                          (agyTask is not null && IsSuccess(agy));
             _state = new CombinedUsageState(
                 codex,
                 grok,
+                agy,
                 success ? now : previous.LastSuccessfulRefreshUtc,
                 now);
             if (success)
@@ -116,9 +127,35 @@ public sealed class UsageRefreshService : IDisposable
     private static bool IsSuccess(ProviderSnapshot snapshot) =>
         snapshot.Status is UsageStatus.Ok or UsageStatus.AuthRejected or UsageStatus.Unauthenticated or UsageStatus.MissingCli;
 
+    private static async Task<ProviderSnapshot> FetchSafelyAsync(
+        IUsageProvider provider,
+        ProviderKind kind,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var snapshot = await provider.FetchAsync(cancellationToken).ConfigureAwait(false);
+            return snapshot.Provider == kind ? snapshot : snapshot with { Provider = kind };
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            return new ProviderSnapshot(
+                kind,
+                UsageStatus.Error,
+                null,
+                [],
+                DateTimeOffset.UtcNow,
+                SanitizeError(ex.Message));
+        }
+    }
+
     private static ProviderSnapshot Merge(ProviderSnapshot previous, ProviderSnapshot next)
     {
-        if (next.Status is UsageStatus.Ok or UsageStatus.AuthRejected or UsageStatus.Unauthenticated or UsageStatus.MissingCli)
+        if (IsSuccess(next))
         {
             return next;
         }
@@ -135,13 +172,18 @@ public sealed class UsageRefreshService : IDisposable
         };
     }
 
-    private static CombinedUsageState PreserveOnFailure(CombinedUsageState previous, string message) =>
-        previous with
+    private static string SanitizeError(string message)
+    {
+        if (message.Contains("token", StringComparison.OrdinalIgnoreCase) ||
+            message.Contains("cookie", StringComparison.OrdinalIgnoreCase) ||
+            message.Contains("authorization", StringComparison.OrdinalIgnoreCase) ||
+            message.Contains("bearer", StringComparison.OrdinalIgnoreCase))
         {
-            Codex = previous.Codex with { Status = previous.Codex.Windows.Count > 0 ? UsageStatus.Stale : UsageStatus.Error, StatusMessage = message },
-            Grok = previous.Grok with { Status = previous.Grok.Windows.Count > 0 ? UsageStatus.Stale : UsageStatus.Error, StatusMessage = message },
-            LastAttemptUtc = DateTimeOffset.UtcNow
-        };
+            return "Provider request failed.";
+        }
+
+        return string.IsNullOrWhiteSpace(message) ? "Provider request failed." : message;
+    }
 
     public void Dispose()
     {

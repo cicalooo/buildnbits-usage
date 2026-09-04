@@ -13,7 +13,7 @@
     <EnableCoreMrtTooling Condition=" '$(EnableCoreMrtTooling)' == '' ">false</EnableCoreMrtTooling>
     <Nullable>enable</Nullable>
     <StartupObject>BuildnBits.Usage.Widgets.ComServer</StartupObject>
-    <Description>Windows 11 Widgets Board provider for combined Codex and Grok usage.</Description>
+    <Description>Windows 11 Widgets Board provider for combined Codex, Grok, and Google Antigravity usage.</Description>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.6.250108002" />

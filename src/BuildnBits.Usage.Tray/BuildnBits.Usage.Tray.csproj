@@ -6,7 +6,7 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon />
     <RootNamespace>BuildnBits.Usage.Tray</RootNamespace>
-    <Description>Notification-area host for Codex and Grok subscription usage.</Description>
+    <Description>Notification-area host for Codex, Grok, and Google Antigravity usage.</Description>
     <Nullable>enable</Nullable>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
   </PropertyGroup>

@@ -20,6 +20,9 @@ public class IconAndShellTests
         using var grok = UsageIconRenderer.Create(ProviderKind.Grok, remaining, highContrast: true, largerDigits: true);
         Assert.NotNull(grok);
         Assert.Equal(remaining, PercentageMath.DisplayPercent(remaining));
+        using var agy = UsageIconRenderer.Create(ProviderKind.Agy, remaining, highContrast: false, largerDigits: true);
+        Assert.NotNull(agy);
+        Assert.Equal(agy.Width, agy.Height);
     }
 
     [Fact]

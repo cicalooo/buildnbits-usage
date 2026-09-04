@@ -43,6 +43,7 @@ public static class ProcessLocator
         [
             Path.Combine(local, "Programs", "OpenAI", "Codex", "bin"),
             Path.Combine(home, ".grok", "bin"),
+            Path.Combine(local, "agy", "bin"),
             Path.Combine(local, "Microsoft", "WinGet", "Links")
         ];
         foreach (var dir in wellKnown)

@@ -31,6 +31,7 @@ public sealed class DiagnosticsForm : Form
             $"Last success (UTC): {state.LastSuccessfulRefreshUtc:O}",
             FormatProvider(state.Codex),
             FormatProvider(state.Grok),
+            FormatProvider(state.Agy),
             "Credentials, tokens, cookies, and prompts are never copied here."
         ]);
     }

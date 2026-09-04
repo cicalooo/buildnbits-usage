@@ -1,19 +1,21 @@
 # BuildnBits.Usage
 
-> A Windows 11 notification-area app for checking your remaining Codex and Grok subscription usage at a glance.
+> A Windows 11 notification-area app for checking your remaining Codex, Grok, and Google Antigravity usage at a glance.
 
 [![Platform: Windows 11](https://img.shields.io/badge/platform-Windows%2011-0078D4?logo=windows&logoColor=white)](#requirements)
 [![.NET 8](https://img.shields.io/badge/.NET-8.0-512BD4?logo=dotnet&logoColor=white)](#build-from-source)
 
 ## At a glance
 
-- Shows Codex 5-hour and 7-day windows alongside Grok weekly usage.
-- Keeps two compact tray icons visible for the Codex and Grok percentages.
+- Shows Codex 5-hour and 7-day windows, Grok weekly usage, and Google Antigravity model quotas.
+- Keeps three compact tray icons visible for the Codex, Grok, and Antigravity percentages.
 - Opens a single status popup with remaining time, reset times, refresh controls, settings, and diagnostics.
 - Refreshes on startup, manual refresh, resume from sleep, network recovery, and roughly every 10 minutes.
 - Stores usage metadata only—never tokens, cookies, prompts, or account credentials.
 
 ## Screenshots
+
+The checked-in screenshots show the original v1.0 two-provider layout; current builds add the Google Antigravity card and tray icon described below.
 
 ### Usage tracker popup
 
@@ -23,13 +25,13 @@ The popup shows all tracked subscription windows, their remaining percentages, r
 
 ### Notification-area icons
 
-Two small notification-area icons keep the current Codex and Grok remaining percentages visible without opening the popup.
+Three small notification-area icons keep the current Codex, Grok, and Antigravity remaining percentages visible without opening the popup. The Antigravity icon shows the lowest remaining quota pool.
 
-![Codex and Grok percentage icons in the Windows notification area](docs/images/usage-tracker-tray-icons.png)
+![Codex, Grok, and Antigravity percentage icons in the Windows notification area](docs/images/usage-tracker-tray-icons.png)
 
 ## How it works
 
-Windows does not provide a supported API for arbitrary inline taskbar widgets. BuildnBits.Usage uses two supported `NotifyIcon` / `Shell_NotifyIcon` icons instead. A Widgets Board card remains in the source as a future plan and is disabled in Settings.
+Windows does not provide a supported API for arbitrary inline taskbar widgets. BuildnBits.Usage uses three supported `NotifyIcon` / `Shell_NotifyIcon` icons instead. A Widgets Board card remains in the source as a future plan and is disabled in Settings.
 
 Replacement taskbars such as StartAllBack or ExplorerPatcher may work when they preserve `Shell_NotifyIcon`; compatibility is not guaranteed.
 
@@ -39,6 +41,7 @@ Replacement taskbars such as StartAllBack or ExplorerPatcher may work when they 
 | --- | --- | --- | --- |
 | **Codex** | `codex app-server --listen stdio://` | 5-hour and 7-day remaining usage, reset times | ChatGPT subscription login; API-key authentication is rejected |
 | **Grok** | `grok --no-auto-update agent stdio` | Weekly remaining usage and reset time | `cached_token` only |
+| **Google Antigravity [agy]** | `agy -p /usage --output-format json` | Weekly remaining quota for each model pool and reset times | Existing `agy` sign-in; credentials stay in the CLI keyring |
 
 ### Codex
 
@@ -47,6 +50,10 @@ BuildnBits.Usage calls `initialize`, `account/read`, and `account/rateLimits/rea
 ### Grok
 
 The app calls `x.ai/billing` using `cached_token`. It never reads or stores `~/.grok/auth.json` or any other credentials.
+
+### Google Antigravity [agy]
+
+The app runs Antigravity's read-only `/usage` command in headless mode and parses its machine-readable `command.data.groups[].buckets[]` response. It records each quota pool separately and shows the lowest remaining pool in the tray icon. The `/usage` command does not start an agent turn or spend model quota. Antigravity authentication remains in the CLI's secure Windows credential store; this app never reads or stores it.
 
 ## Privacy and cache
 
@@ -67,7 +74,7 @@ Temporary refresh failures retain the last successful percentages and mark the s
 
 | Project | Responsibility |
 | --- | --- |
-| `BuildnBits.Usage.Core` | Models, JSON-RPC stdio client, Codex/Grok parsers, cache, refresh loop, and Adaptive Card JSON |
+| `BuildnBits.Usage.Core` | Models, process clients, Codex/Grok/agy parsers, cache, refresh loop, and Adaptive Card JSON |
 | `BuildnBits.Usage.Tray` | WinForms host, DPI-aware icons, combined popup, launch-at-login, and diagnostics |
 | `BuildnBits.Usage.Widgets` | COM Widgets Board provider |
 | `BuildnBits.Usage.Package` | MSIX packaging for the tray app and widget |
@@ -77,7 +84,7 @@ Temporary refresh failures retain the last successful percentages and mark the s
 
 - Windows 11
 - .NET SDK 8 to build from source
-- An authenticated Codex CLI and/or Grok CLI, depending on the providers you use
+- An authenticated Codex, Grok, and/or Antigravity CLI, depending on the providers you use
 
 ## Build from source
 
@@ -131,7 +138,7 @@ Requires the Windows SDK `makeappx` tool:
 pwsh -File src/BuildnBits.Usage.Package/pack.ps1
 ```
 
-Explorer restarts re-register the two `NotifyIcon` instances through the documented `TaskbarCreated` broadcast. Icons are not reparented into Explorer.
+Explorer restarts re-register the three `NotifyIcon` instances through the documented `TaskbarCreated` broadcast. Icons are not reparented into Explorer.
 
 For development signing, see [the signing guide](src/BuildnBits.Usage.Package/signing/README.md). Private certificates are not committed (`*.pfx` is ignored); the development publisher subject is `CN=BuildnBits-Dev`.
 

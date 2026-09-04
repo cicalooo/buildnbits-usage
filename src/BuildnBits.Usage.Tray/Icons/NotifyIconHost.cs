@@ -5,15 +5,17 @@ using BuildnBits.Usage.Core.Storage;
 namespace BuildnBits.Usage.Tray.Icons;
 
 /// <summary>
-/// Owns two Shell_NotifyIcon-backed NotifyIcon instances. No Explorer injection or reparenting.
+/// Owns three Shell_NotifyIcon-backed NotifyIcon instances. No Explorer injection or reparenting.
 /// </summary>
 public sealed class NotifyIconHost : IDisposable
 {
     private readonly NotifyIcon _codex;
     private readonly NotifyIcon _grok;
+    private readonly NotifyIcon _agy;
     private readonly TaskbarCreatedWindow _taskbarCreated;
     private Icon? _codexIcon;
     private Icon? _grokIcon;
+    private Icon? _agyIcon;
     private CombinedUsageState _last = CombinedUsageState.Empty;
     private bool _launchAtLogin;
     private AppSettings _settings = new();
@@ -29,6 +31,7 @@ public sealed class NotifyIconHost : IDisposable
     {
         _codex = CreateIcon("Codex");
         _grok = CreateIcon("Grok");
+        _agy = CreateIcon("Google Antigravity [agy]");
         _taskbarCreated = new TaskbarCreatedWindow(RecreateAfterExplorerRestart);
     }
 
@@ -37,7 +40,7 @@ public sealed class NotifyIconHost : IDisposable
         _last = state;
         _launchAtLogin = launchAtLogin;
         _settings = settings ?? _settings;
-        if (!_settings.ShowCodexIcon && !_settings.ShowGrokIcon)
+        if (!_settings.ShowCodexIcon && !_settings.ShowGrokIcon && !_settings.ShowAgyIcon)
         {
             _settings.ShowCodexIcon = true;
         }
@@ -50,14 +53,20 @@ public sealed class NotifyIconHost : IDisposable
         var grokRemaining = (state.Grok.Weekly?.RemainingPercent ?? state.Grok.LowestRemainingPercent) is { } g
             ? PercentageMath.DisplayPercent(g)
             : (int?)null;
+        var agyRemaining = state.Agy.LowestRemainingPercent is { } a
+            ? PercentageMath.DisplayPercent(a)
+            : (int?)null;
 
         Replace(ref _codexIcon, _codex, UsageIconRenderer.Create(ProviderKind.Codex, codexRemaining, highContrast, largerDigits: larger));
         Replace(ref _grokIcon, _grok, UsageIconRenderer.Create(ProviderKind.Grok, grokRemaining, highContrast, largerDigits: larger));
+        Replace(ref _agyIcon, _agy, UsageIconRenderer.Create(ProviderKind.Agy, agyRemaining, highContrast, largerDigits: larger));
 
         _codex.Text = Truncate(CodexTooltip(state.Codex));
         _grok.Text = Truncate(GrokTooltip(state.Grok));
+        _agy.Text = Truncate(AgyTooltip(state.Agy));
         _codex.Visible = _settings.ShowCodexIcon;
         _grok.Visible = _settings.ShowGrokIcon;
+        _agy.Visible = _settings.ShowAgyIcon;
 
         RebuildMenus(launchAtLogin);
     }
@@ -81,8 +90,16 @@ public sealed class NotifyIconHost : IDisposable
 
     private void RebuildMenus(bool launchAtLogin)
     {
-        _codex.ContextMenuStrip = BuildMenu(launchAtLogin);
-        _grok.ContextMenuStrip = BuildMenu(launchAtLogin);
+        ReplaceMenu(_codex, BuildMenu(launchAtLogin));
+        ReplaceMenu(_grok, BuildMenu(launchAtLogin));
+        ReplaceMenu(_agy, BuildMenu(launchAtLogin));
+    }
+
+    private static void ReplaceMenu(NotifyIcon icon, ContextMenuStrip next)
+    {
+        var previous = icon.ContextMenuStrip;
+        icon.ContextMenuStrip = next;
+        previous?.Dispose();
     }
 
     private ContextMenuStrip BuildMenu(bool launchAtLogin)
@@ -104,6 +121,7 @@ public sealed class NotifyIconHost : IDisposable
     {
         _codex.Visible = false;
         _grok.Visible = false;
+        _agy.Visible = false;
         Apply(_last, _launchAtLogin, _settings);
     }
 
@@ -128,6 +146,15 @@ public sealed class NotifyIconHost : IDisposable
         return $"Grok weekly {week?.RemainingPercent:0}% remaining ({ResetCountdown.LocalResetLabel(week?.ResetsAtUtc)}). {snapshot.Status}";
     }
 
+    private static string AgyTooltip(ProviderSnapshot snapshot)
+    {
+        var pools = snapshot.Windows.Count == 0
+            ? "unavailable"
+            : string.Join(", ", snapshot.Windows.Select(w =>
+                $"{w.Label} {w.RemainingPercent:0}% ({ResetCountdown.LocalResetLabel(w.ResetsAtUtc)})"));
+        return $"Google Antigravity [agy]: {pools}. {snapshot.Status}";
+    }
+
     private static string Truncate(string value) =>
         value.Length <= 127 ? value : value[..124] + "...";
 
@@ -135,10 +162,13 @@ public sealed class NotifyIconHost : IDisposable
     {
         _codex.Visible = false;
         _grok.Visible = false;
+        _agy.Visible = false;
         _codex.Dispose();
         _grok.Dispose();
+        _agy.Dispose();
         _taskbarCreated.Dispose();
         _codexIcon?.Dispose();
         _grokIcon?.Dispose();
+        _agyIcon?.Dispose();
     }
 }

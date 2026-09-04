@@ -28,6 +28,7 @@ public class AppSettingsTests
         {
             ShowCodexIcon = false,
             ShowGrokIcon = false,
+            ShowAgyIcon = false,
             LargerTrayDigits = false
         });
         var loaded = store.Load();

@@ -6,6 +6,7 @@ public sealed class AppSettings
 {
     public bool ShowCodexIcon { get; set; } = true;
     public bool ShowGrokIcon { get; set; } = true;
+    public bool ShowAgyIcon { get; set; } = true;
     public bool LargerTrayDigits { get; set; } = true;
 }
 
@@ -42,7 +43,7 @@ public sealed class AppSettingsStore
                 var json = File.ReadAllText(_path);
                 return JsonSerializer.Deserialize<AppSettings>(json, JsonOptions) ?? new AppSettings();
             }
-            catch (JsonException)
+            catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
             {
                 return new AppSettings();
             }
@@ -51,17 +52,33 @@ public sealed class AppSettingsStore
 
     public void Save(AppSettings settings)
     {
-        if (!settings.ShowCodexIcon && !settings.ShowGrokIcon)
+        if (!settings.ShowCodexIcon && !settings.ShowGrokIcon && !settings.ShowAgyIcon)
         {
             settings.ShowCodexIcon = true;
         }
 
         lock (_sync)
         {
-            var tmp = _path + ".tmp";
-            File.WriteAllText(tmp, JsonSerializer.Serialize(settings, JsonOptions));
-            File.Copy(tmp, _path, overwrite: true);
-            File.Delete(tmp);
+            var tmp = _path + "." + Guid.NewGuid().ToString("N") + ".tmp";
+            try
+            {
+                File.WriteAllText(tmp, JsonSerializer.Serialize(settings, JsonOptions));
+                File.Move(tmp, _path, overwrite: true);
+            }
+            finally
+            {
+                try
+                {
+                    if (File.Exists(tmp))
+                    {
+                        File.Delete(tmp);
+                    }
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    // Preserve the original save exception, if any.
+                }
+            }
         }
     }
 }

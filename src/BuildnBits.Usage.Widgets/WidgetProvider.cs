@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using BuildnBits.Usage.Core.Providers.Agy;
 using BuildnBits.Usage.Core.Refresh;
 using BuildnBits.Usage.Core.Storage;
 using BuildnBits.Usage.Core.Widgets;
@@ -33,7 +34,7 @@ public sealed class WidgetProvider : IWidgetProvider
 
     private static UsageRefreshService CreateRefresh()
     {
-        var service = new UsageRefreshService(cache: Cache);
+        var service = new UsageRefreshService(cache: Cache, agy: new AgyUsageClient());
         service.StateChanged += (_, _) => UpdateAll();
         return service;
     }

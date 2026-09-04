@@ -11,6 +11,7 @@ public sealed class SettingsForm : Form
     private readonly CheckBox _launch = new() { Text = "Launch at login", AutoSize = true };
     private readonly CheckBox _codex = new() { Text = "Show Codex notification-area icon", AutoSize = true };
     private readonly CheckBox _grok = new() { Text = "Show Grok notification-area icon", AutoSize = true };
+    private readonly CheckBox _agy = new() { Text = "Show Google Antigravity [agy] notification-area icon", AutoSize = true };
     private readonly CheckBox _larger = new() { Text = "Larger tray digits", AutoSize = true };
     private readonly Label _cache = new() { AutoSize = true };
     private readonly Label _widget = new()
@@ -35,7 +36,7 @@ public sealed class SettingsForm : Form
         FormBorderStyle = FormBorderStyle.FixedDialog;
         StartPosition = FormStartPosition.CenterScreen;
         AutoScaleMode = AutoScaleMode.Dpi;
-        ClientSize = new Size(520, 340);
+        ClientSize = new Size(520, 360);
         MaximizeBox = false;
         MinimizeBox = false;
         Font = new Font("Segoe UI", 9.5f);
@@ -44,6 +45,7 @@ public sealed class SettingsForm : Form
         _launch.Checked = LaunchAtLogin.IsEnabled();
         _codex.Checked = current.ShowCodexIcon;
         _grok.Checked = current.ShowGrokIcon;
+        _agy.Checked = current.ShowAgyIcon;
         _larger.Checked = current.LargerTrayDigits;
         _cache.Text = $"Cache folder:\n{Path.GetDirectoryName(cachePath)}";
 
@@ -74,6 +76,7 @@ public sealed class SettingsForm : Form
         layout.Controls.Add(_launch);
         layout.Controls.Add(_codex);
         layout.Controls.Add(_grok);
+        layout.Controls.Add(_agy);
         layout.Controls.Add(_larger);
         layout.Controls.Add(_widget);
         layout.Controls.Add(openWidgets);
@@ -88,7 +91,7 @@ public sealed class SettingsForm : Form
 
         ok.Click += (_, _) =>
         {
-            if (!_codex.Checked && !_grok.Checked)
+            if (!_codex.Checked && !_grok.Checked && !_agy.Checked)
             {
                 _codex.Checked = true;
             }
@@ -97,6 +100,7 @@ public sealed class SettingsForm : Form
             {
                 ShowCodexIcon = _codex.Checked,
                 ShowGrokIcon = _grok.Checked,
+                ShowAgyIcon = _agy.Checked,
                 LargerTrayDigits = _larger.Checked
             };
             _store.Save(Result);

@@ -10,7 +10,7 @@
   <Properties>
     <DisplayName>BuildnBits Usage</DisplayName>
     <PublisherDisplayName>BuildnBits</PublisherDisplayName>
-    <Description>Codex and Grok subscription remaining usage in the notification area and Widgets Board.</Description>
+    <Description>Codex, Grok, and Google Antigravity remaining usage in the notification area and Widgets Board.</Description>
     <Logo>Images\StoreLogo.png</Logo>
   </Properties>
   <Dependencies>
@@ -27,7 +27,7 @@
     <Application Id="Tray" Executable="BuildnBits.Usage.Tray.exe" EntryPoint="Windows.FullTrustApplication">
       <uap:VisualElements
         DisplayName="BuildnBits Usage"
-        Description="Codex and Grok remaining usage"
+        Description="Codex, Grok, and Google Antigravity remaining usage"
         BackgroundColor="transparent"
         Square150x150Logo="Images\Square150x150Logo.png"
         Square44x44Logo="Images\Square44x44Logo.png" />
@@ -46,7 +46,7 @@
                   <Definition
                     Id="BuildnBitsUsage"
                     DisplayName="BuildnBits Usage"
-                    Description="Combined Codex and Grok remaining usage.">
+                    Description="Combined Codex, Grok, and Google Antigravity remaining usage.">
                     <Capabilities>
                       <Capability>
                         <Size Name="small" />

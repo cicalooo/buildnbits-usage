@@ -95,7 +95,19 @@ public sealed class JsonRpcProcessClient : IAsyncDisposable
             payload["params"] = parameters;
         }
 
-        await WriteAsync(payload, cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await WriteAsync(payload, cancellationToken).ConfigureAwait(false);
+        }
+        catch
+        {
+            lock (_sync)
+            {
+                _pending.Remove(id);
+            }
+
+            throw;
+        }
 
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _lifetime.Token);
         await using var reg = linked.Token.Register(() => tcs.TrySetCanceled(linked.Token));
