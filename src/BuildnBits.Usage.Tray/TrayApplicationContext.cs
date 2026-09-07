@@ -1,6 +1,8 @@
 using System.Net.NetworkInformation;
 using BuildnBits.Usage.Core.Refresh;
 using BuildnBits.Usage.Core.Providers.Agy;
+using BuildnBits.Usage.Core.Providers.Codex;
+using BuildnBits.Usage.Core.Providers.Grok;
 using BuildnBits.Usage.Core.Storage;
 using BuildnBits.Usage.Tray.Icons;
 using BuildnBits.Usage.Tray.Startup;
@@ -19,15 +21,18 @@ public sealed class TrayApplicationContext : ApplicationContext
     private readonly UsagePopupForm _popup = new();
     private AppSettings _settings;
     private bool _launchAtLogin;
+    private int _exiting;
 
     public TrayApplicationContext()
     {
         _settings = _settingsStore.Load();
         _log.Info($"Application startup; refresh interval={_settings.RefreshIntervalMinutes} minutes.");
         _refresh = new UsageRefreshService(
+            new CodexUsageClient(appLog: _log),
+            new GrokUsageClient(appLog: _log),
+            new AgyUsageClient(appLog: _log),
             cache: _cache,
             interval: TimeSpan.FromMinutes(_settings.RefreshIntervalMinutes),
-            agy: new AgyUsageClient(),
             appLog: _log);
         _launchAtLogin = LaunchAtLogin.IsEnabled();
 
@@ -58,6 +63,11 @@ public sealed class TrayApplicationContext : ApplicationContext
         {
             void Apply()
             {
+                if (Volatile.Read(ref _exiting) != 0)
+                {
+                    return;
+                }
+
                 _icons.Apply(state, _launchAtLogin, _settings);
                 if (_popup.Visible)
                 {
@@ -69,9 +79,46 @@ public sealed class TrayApplicationContext : ApplicationContext
             {
                 ui.Post(_ => Apply(), null);
             }
-            else if (_popup.IsHandleCreated)
+            else if (_popup.IsHandleCreated && !_popup.IsDisposed)
             {
-                _popup.BeginInvoke(Apply);
+                try
+                {
+                    _popup.BeginInvoke(Apply);
+                }
+                catch (InvalidOperationException)
+                {
+                    // The popup is closing while a state update is queued.
+                }
+            }
+            else
+            {
+                Apply();
+            }
+        };
+        _refresh.ProgressChanged += (_, progress) =>
+        {
+            void Apply()
+            {
+                if (Volatile.Read(ref _exiting) == 0 && !_popup.IsDisposed)
+                {
+                    _popup.SetRefreshProgress(progress);
+                }
+            }
+
+            if (ui is not null)
+            {
+                ui.Post(_ => Apply(), null);
+            }
+            else if (_popup.IsHandleCreated && !_popup.IsDisposed)
+            {
+                try
+                {
+                    _popup.BeginInvoke(Apply);
+                }
+                catch (InvalidOperationException)
+                {
+                    // The popup is closing while a progress update is queued.
+                }
             }
             else
             {
@@ -109,19 +156,19 @@ public sealed class TrayApplicationContext : ApplicationContext
         }
     }
 
-    private async void OnPowerModeChanged(object sender, PowerModeChangedEventArgs e)
+    private void OnPowerModeChanged(object sender, PowerModeChangedEventArgs e)
     {
         if (e.Mode == PowerModes.Resume)
         {
-            await _refresh.RefreshNowAsync();
+            RequestRefresh();
         }
     }
 
-    private async void OnNetworkAvailabilityChanged(object? sender, NetworkAvailabilityEventArgs e)
+    private void OnNetworkAvailabilityChanged(object? sender, NetworkAvailabilityEventArgs e)
     {
         if (e.IsAvailable)
         {
-            await _refresh.RefreshNowAsync();
+            RequestRefresh();
         }
     }
 
@@ -132,6 +179,7 @@ public sealed class TrayApplicationContext : ApplicationContext
 
     protected override void ExitThreadCore()
     {
+        Interlocked.Exchange(ref _exiting, 1);
         SystemEvents.PowerModeChanged -= OnPowerModeChanged;
         SystemEvents.UserPreferenceChanged -= OnUserPreferenceChanged;
         NetworkChange.NetworkAvailabilityChanged -= OnNetworkAvailabilityChanged;

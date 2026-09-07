@@ -3,12 +3,13 @@ using System.Text.Json.Nodes;
 using BuildnBits.Usage.Core.JsonRpc;
 using BuildnBits.Usage.Core.Models;
 using BuildnBits.Usage.Core.Providers;
+using BuildnBits.Usage.Core.Storage;
 
 namespace BuildnBits.Usage.Core.Providers.Grok;
 
 public sealed class GrokUsageClient : IUsageProvider, IDisposable, IAsyncDisposable
 {
-    private const string ClientVersion = "1.2.0";
+    private const string ClientVersion = "1.2.1";
 
     private readonly Func<string, IReadOnlyList<string>, JsonRpcProcessClient> _factory;
     private readonly string _executableName;
@@ -21,7 +22,8 @@ public sealed class GrokUsageClient : IUsageProvider, IDisposable, IAsyncDisposa
 
     public GrokUsageClient(
         string executableName = "grok",
-        Func<string, IReadOnlyList<string>, JsonRpcProcessClient>? factory = null)
+        Func<string, IReadOnlyList<string>, JsonRpcProcessClient>? factory = null,
+        AppLog? appLog = null)
     {
         _executableName = executableName;
         _factory = factory ?? ((file, args) => new JsonRpcProcessClient(new JsonRpcProcessOptions
@@ -29,7 +31,8 @@ public sealed class GrokUsageClient : IUsageProvider, IDisposable, IAsyncDisposa
             FileName = file,
             Arguments = args,
             Timeout = TimeSpan.FromSeconds(25),
-            EscapeForwardSlashes = false
+            EscapeForwardSlashes = false,
+            DiagnosticLog = message => appLog?.Info($"Grok {message}")
         }));
     }
 

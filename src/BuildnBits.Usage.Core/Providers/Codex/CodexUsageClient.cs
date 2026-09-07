@@ -3,12 +3,13 @@ using System.Text.Json.Nodes;
 using BuildnBits.Usage.Core.JsonRpc;
 using BuildnBits.Usage.Core.Models;
 using BuildnBits.Usage.Core.Providers;
+using BuildnBits.Usage.Core.Storage;
 
 namespace BuildnBits.Usage.Core.Providers.Codex;
 
 public sealed class CodexUsageClient : IUsageProvider, IDisposable, IAsyncDisposable
 {
-    private const string ClientVersion = "1.2.0";
+    private const string ClientVersion = "1.2.1";
 
     private readonly Func<string, IReadOnlyList<string>, JsonRpcProcessClient> _factory;
     private readonly string _executableName;
@@ -20,7 +21,8 @@ public sealed class CodexUsageClient : IUsageProvider, IDisposable, IAsyncDispos
 
     public CodexUsageClient(
         string executableName = "codex",
-        Func<string, IReadOnlyList<string>, JsonRpcProcessClient>? factory = null)
+        Func<string, IReadOnlyList<string>, JsonRpcProcessClient>? factory = null,
+        AppLog? appLog = null)
     {
         _executableName = executableName;
         _factory = factory ?? ((file, args) => new JsonRpcProcessClient(new JsonRpcProcessOptions
@@ -28,7 +30,8 @@ public sealed class CodexUsageClient : IUsageProvider, IDisposable, IAsyncDispos
             FileName = file,
             Arguments = args,
             Timeout = TimeSpan.FromSeconds(25),
-            EscapeForwardSlashes = true
+            EscapeForwardSlashes = true,
+            DiagnosticLog = message => appLog?.Info($"Codex {message}")
         }));
     }
 

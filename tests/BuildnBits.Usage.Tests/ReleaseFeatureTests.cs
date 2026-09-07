@@ -110,6 +110,24 @@ public class ReleaseFeatureTests
     }
 
     [Fact]
+    public void Shared_process_start_info_is_headless_and_redirected()
+    {
+        var start = ProcessLocator.CreateStartInfo(
+            "usage-tool.exe",
+            ["--check", "stdio://"],
+            redirectStandardInput: true);
+
+        Assert.False(start.UseShellExecute);
+        Assert.True(start.CreateNoWindow);
+        Assert.Equal(System.Diagnostics.ProcessWindowStyle.Hidden, start.WindowStyle);
+        Assert.True(start.RedirectStandardInput);
+        Assert.True(start.RedirectStandardOutput);
+        Assert.True(start.RedirectStandardError);
+        Assert.Equal("usage-tool.exe", start.FileName);
+        Assert.Equal(["--check", "stdio://"], start.ArgumentList);
+    }
+
+    [Fact]
     public void Refresh_service_interval_can_change_without_recreating_it()
     {
         var dir = Path.Combine(Path.GetTempPath(), "bnb-refresh-v12-" + Guid.NewGuid());

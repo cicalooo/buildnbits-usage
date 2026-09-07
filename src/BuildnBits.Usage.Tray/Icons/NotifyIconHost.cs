@@ -62,9 +62,9 @@ public sealed class NotifyIconHost : IDisposable
         Replace(ref _grokIcon, _grok, UsageIconRenderer.Create(ProviderKind.Grok, grokRemaining, highContrast, largerDigits: larger));
         Replace(ref _agyIcon, _agy, UsageIconRenderer.Create(ProviderKind.Agy, agyRemaining, highContrast, largerDigits: larger));
 
-        _codex.Text = Truncate(CodexTooltip(state.Codex, state.LastSuccessfulRefreshUtc));
-        _grok.Text = Truncate(GrokTooltip(state.Grok, state.LastSuccessfulRefreshUtc));
-        _agy.Text = Truncate(AgyTooltip(state.Agy, state.LastSuccessfulRefreshUtc));
+        _codex.Text = Truncate(CodexTooltip(state.Codex));
+        _grok.Text = Truncate(GrokTooltip(state.Grok));
+        _agy.Text = Truncate(AgyTooltip(state.Agy));
         _codex.Visible = _settings.ShowCodexIcon;
         _grok.Visible = _settings.ShowGrokIcon;
         _agy.Visible = _settings.ShowAgyIcon;
@@ -146,30 +146,30 @@ public sealed class NotifyIconHost : IDisposable
         field = next;
     }
 
-    private static string CodexTooltip(ProviderSnapshot snapshot, DateTimeOffset? updatedAtUtc)
+    private static string CodexTooltip(ProviderSnapshot snapshot)
     {
         var five = snapshot.WindowByDuration(300);
         var week = snapshot.WindowByDuration(10080);
         var lowest = snapshot.LowestRemainingPercent;
         var plan = string.IsNullOrWhiteSpace(snapshot.PlanLabel) ? string.Empty : $" ({snapshot.PlanLabel})";
-        return $"{RefreshAge(updatedAtUtc)} · Codex{plan} {lowest:0}% remaining. 5h {five?.RemainingPercent:0}% ({ResetCountdown.LocalResetLabel(five?.ResetsAtUtc)}). 7d {week?.RemainingPercent:0}% ({ResetCountdown.LocalResetLabel(week?.ResetsAtUtc)}). {snapshot.Status}";
+        return $"{RefreshAge(snapshot.FetchedAtUtc)} · Codex{plan} {lowest:0}% remaining. 5h {five?.RemainingPercent:0}% ({ResetCountdown.LocalResetLabel(five?.ResetsAtUtc)}). 7d {week?.RemainingPercent:0}% ({ResetCountdown.LocalResetLabel(week?.ResetsAtUtc)}). {snapshot.Status}";
     }
 
-    private static string GrokTooltip(ProviderSnapshot snapshot, DateTimeOffset? updatedAtUtc)
+    private static string GrokTooltip(ProviderSnapshot snapshot)
     {
         var week = snapshot.Weekly ?? snapshot.Windows.FirstOrDefault();
         var plan = string.IsNullOrWhiteSpace(snapshot.PlanLabel) ? string.Empty : $" ({snapshot.PlanLabel})";
-        return $"{RefreshAge(updatedAtUtc)} · Grok{plan} weekly {week?.RemainingPercent:0}% remaining ({ResetCountdown.LocalResetLabel(week?.ResetsAtUtc)}). {snapshot.Status}";
+        return $"{RefreshAge(snapshot.FetchedAtUtc)} · Grok{plan} weekly {week?.RemainingPercent:0}% remaining ({ResetCountdown.LocalResetLabel(week?.ResetsAtUtc)}). {snapshot.Status}";
     }
 
-    private static string AgyTooltip(ProviderSnapshot snapshot, DateTimeOffset? updatedAtUtc)
+    private static string AgyTooltip(ProviderSnapshot snapshot)
     {
         var pools = snapshot.Windows.Count == 0
             ? "unavailable"
             : string.Join(", ", snapshot.Windows.Select(w =>
                 $"{w.Label} {w.RemainingPercent:0}% ({ResetCountdown.LocalResetLabel(w.ResetsAtUtc)})"));
         var plan = string.IsNullOrWhiteSpace(snapshot.PlanLabel) ? string.Empty : $" ({snapshot.PlanLabel})";
-        return $"{RefreshAge(updatedAtUtc)} · Google Antigravity [agy]{plan}: {pools}. {snapshot.Status}";
+        return $"{RefreshAge(snapshot.FetchedAtUtc)} · Google Antigravity [agy]{plan}: {pools}. {snapshot.Status}";
     }
 
     private static string RefreshAge(DateTimeOffset? updatedAtUtc)

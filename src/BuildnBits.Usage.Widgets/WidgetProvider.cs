@@ -13,6 +13,7 @@ namespace BuildnBits.Usage.Widgets;
 public sealed class WidgetProvider : IWidgetProvider
 {
     private static readonly Dictionary<string, WidgetContext> Running = new();
+    private static readonly object RunningSync = new();
     private static readonly UsageCache Cache = new();
     private static readonly UsageRefreshService Refresh = CreateRefresh();
 
@@ -41,18 +42,28 @@ public sealed class WidgetProvider : IWidgetProvider
 
     public void CreateWidget(WidgetContext widgetContext)
     {
-        Running[widgetContext.Id] = widgetContext;
+        lock (RunningSync)
+        {
+            Running[widgetContext.Id] = widgetContext;
+        }
+
         Push(widgetContext.Id, widgetContext.DefinitionId);
-        _ = Refresh.RefreshNowAsync();
+        RequestRefresh();
     }
 
-    public void DeleteWidget(string widgetId, string customState) => Running.Remove(widgetId);
+    public void DeleteWidget(string widgetId, string customState)
+    {
+        lock (RunningSync)
+        {
+            Running.Remove(widgetId);
+        }
+    }
 
     public void OnActionInvoked(WidgetActionInvokedArgs actionInvokedArgs)
     {
         if (string.Equals(actionInvokedArgs.Verb, "refresh", StringComparison.OrdinalIgnoreCase))
         {
-            _ = Refresh.RefreshNowAsync();
+            RequestRefresh();
             return;
         }
 
@@ -76,15 +87,23 @@ public sealed class WidgetProvider : IWidgetProvider
     public void OnWidgetContextChanged(WidgetContextChangedArgs contextChangedArgs)
     {
         var context = contextChangedArgs.WidgetContext;
-        Running[context.Id] = context;
+        lock (RunningSync)
+        {
+            Running[context.Id] = context;
+        }
+
         Push(context.Id, context.DefinitionId);
     }
 
     public void Activate(WidgetContext widgetContext)
     {
-        Running[widgetContext.Id] = widgetContext;
+        lock (RunningSync)
+        {
+            Running[widgetContext.Id] = widgetContext;
+        }
+
         Push(widgetContext.Id, widgetContext.DefinitionId);
-        _ = Refresh.RefreshNowAsync();
+        RequestRefresh();
     }
 
     public void Deactivate(string widgetId)
@@ -94,25 +113,65 @@ public sealed class WidgetProvider : IWidgetProvider
 
     private static void UpdateAll()
     {
-        foreach (var pair in Running.ToArray())
+        KeyValuePair<string, WidgetContext>[] running;
+        lock (RunningSync)
         {
-            Push(pair.Key, pair.Value.DefinitionId);
+            running = Running.ToArray();
+        }
+
+        foreach (var pair in running)
+        {
+            try
+            {
+                Push(pair.Key, pair.Value.DefinitionId);
+            }
+            catch
+            {
+                // Explorer can invalidate a widget context while an update is
+                // in flight; a later activation will recreate it.
+            }
+        }
+    }
+
+    private static void RequestRefresh()
+    {
+        _ = RefreshSafelyAsync();
+    }
+
+    private static async Task RefreshSafelyAsync()
+    {
+        try
+        {
+            await Refresh.RefreshNowAsync().ConfigureAwait(false);
+        }
+        catch
+        {
+            // COM callbacks must not surface an unobserved task exception.
         }
     }
 
     private static void Push(string widgetId, string definitionId)
     {
-        var state = Refresh.Current;
-        if (state.LastAttemptUtc is null)
+        try
         {
-            state = Cache.Load();
+            var state = Refresh.Current;
+            if (state.LastAttemptUtc is null)
+            {
+                state = Cache.Load();
+            }
+
+            var options = new WidgetUpdateRequestOptions(widgetId)
+            {
+                Template = UsageAdaptiveCard.TemplateJson(),
+                Data = UsageAdaptiveCard.DataJson(state, DateTimeOffset.UtcNow),
+                CustomState = definitionId
+            };
+            WidgetManager.GetDefault().UpdateWidget(options);
         }
-        var options = new WidgetUpdateRequestOptions(widgetId)
+        catch
         {
-            Template = UsageAdaptiveCard.TemplateJson(),
-            Data = UsageAdaptiveCard.DataJson(state, DateTimeOffset.UtcNow),
-            CustomState = definitionId
-        };
-        WidgetManager.GetDefault().UpdateWidget(options);
+            // WidgetManager can reject an update while Explorer is restarting;
+            // a later activation or refresh will retry it.
+        }
     }
 }

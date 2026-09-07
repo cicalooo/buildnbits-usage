@@ -132,11 +132,18 @@ public static class UsageAdaptiveCard
             ["agyRemaining"] = Display(agy),
             ["agyCountdown"] = ResetCountdown.Format(ResetCountdown.Remaining(agy?.ResetsAtUtc, nowUtc)),
             ["agyPools"] = agyPools,
-            ["statusLine"] = $"Updated {state.LastSuccessfulRefreshUtc?.ToLocalTime():g} · Codex {state.Codex.Status} · Grok {state.Grok.Status} · agy {state.Agy.Status}"
+            ["statusLine"] = $"Codex {Freshness(state.Codex)} {state.Codex.Status} · " +
+                              $"Grok {Freshness(state.Grok)} {state.Grok.Status} · " +
+                              $"agy {Freshness(state.Agy)} {state.Agy.Status}"
         };
         return data.ToJsonString(new JsonSerializerOptions { WriteIndented = false });
     }
 
     private static JsonNode Display(UsageWindow? window) =>
         window is null ? "—" : PercentageMath.DisplayPercent(window.RemainingPercent);
+
+    private static string Freshness(ProviderSnapshot snapshot) =>
+        snapshot.FetchedAtUtc is { } fetched
+            ? fetched.ToLocalTime().ToString("g")
+            : "never";
 }

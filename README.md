@@ -15,7 +15,7 @@
 - Shows Codex 5-hour and 7-day windows, Grok weekly usage, and Google Antigravity model quotas.
 - Keeps three compact tray icons visible for the Codex, Grok, and Antigravity percentages.
 - Opens a compact, scrollable status popup with every Antigravity quota pool, remaining time, reset times, refresh controls, settings, and diagnostics.
-- Refreshes on startup, manual refresh, resume from sleep, network recovery, and roughly every 5 minutes by default.
+- Refreshes on startup, manual refresh, resume from sleep, network recovery, and roughly every 5 minutes by default. Provider results appear progressively, so a slow CLI does not hold back the others.
 - Supports 3-minute, 5-minute, and 10-minute update intervals from Settings or the tray menu.
 - Stores usage metadata only—never tokens, cookies, prompts, or account credentials.
 
@@ -75,6 +75,8 @@ Tokens, cookies, prompts, and account credentials are never copied or logged.
 - **Portable build:** cache and settings are stored in `data\` next to the executable when `portable.flag` is present.
 
 Temporary refresh failures retain the last successful percentages and mark the status as stale.
+
+Antigravity's one-shot `/usage` command is capped at 15 seconds. A timeout leaves its cached values visible as stale while Codex and Grok continue to update.
 
 The application log is append-only, capped at 512 KB, and rotates to app.log.1. It contains startup, refresh, provider-status, and process-launch diagnostics after credential-safe redaction; raw JSON-RPC responses, stderr, tokens, cookies, and prompts are never logged.
 

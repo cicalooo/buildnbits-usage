@@ -1,8 +1,8 @@
 using System.Diagnostics;
-using System.Text;
 using BuildnBits.Usage.Core.JsonRpc;
 using BuildnBits.Usage.Core.Models;
 using BuildnBits.Usage.Core.Providers;
+using BuildnBits.Usage.Core.Storage;
 
 namespace BuildnBits.Usage.Core.Providers.Agy;
 
@@ -10,17 +10,25 @@ public sealed record AgyCommandResult(int ExitCode, string StandardOutput, strin
 
 public sealed class AgyUsageClient : IUsageProvider
 {
+    public static readonly TimeSpan DefaultUsageTimeout = TimeSpan.FromSeconds(15);
+
     private static readonly IReadOnlyList<string> UsageArguments =
         ["-p", "/usage", "--output-format", "json"];
 
     private readonly string _executableName;
     private readonly Func<string, IReadOnlyList<string>, CancellationToken, Task<AgyCommandResult>> _commandRunner;
+    private readonly AppLog? _log;
+    private readonly TimeSpan _timeout;
 
     public AgyUsageClient(
         string executableName = "agy",
-        Func<string, IReadOnlyList<string>, CancellationToken, Task<AgyCommandResult>>? commandRunner = null)
+        Func<string, IReadOnlyList<string>, CancellationToken, Task<AgyCommandResult>>? commandRunner = null,
+        AppLog? appLog = null,
+        TimeSpan? timeout = null)
     {
         _executableName = executableName;
+        _log = appLog;
+        _timeout = timeout.HasValue && timeout.Value > TimeSpan.Zero ? timeout.Value : DefaultUsageTimeout;
         _commandRunner = commandRunner ?? RunProcessAsync;
     }
 
@@ -39,7 +47,7 @@ public sealed class AgyUsageClient : IUsageProvider
         }
 
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeout.CancelAfter(TimeSpan.FromSeconds(30));
+        timeout.CancelAfter(_timeout);
 
         AgyCommandResult command;
         try
@@ -77,59 +85,45 @@ public sealed class AgyUsageClient : IUsageProvider
         }
     }
 
-    private static async Task<AgyCommandResult> RunProcessAsync(
+    private async Task<AgyCommandResult> RunProcessAsync(
         string executable,
         IReadOnlyList<string> arguments,
         CancellationToken cancellationToken)
     {
         var launch = ProcessLocator.PrepareLaunch(executable, arguments);
-        var start = new ProcessStartInfo
-        {
-            FileName = launch.FileName,
-            RedirectStandardInput = false,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            WindowStyle = ProcessWindowStyle.Hidden,
-            ErrorDialog = false,
-            StandardOutputEncoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
-            StandardErrorEncoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false)
-        };
-        if (ProcessLocator.UsesCommandShell(launch.FileName))
-        {
-            start.Arguments = ProcessLocator.BuildRawArguments(launch.Arguments);
-        }
-        else
-        {
-            foreach (var argument in launch.Arguments)
-            {
-                start.ArgumentList.Add(argument);
-            }
-        }
+        var start = ProcessLocator.CreateStartInfo(executable, arguments, redirectStandardInput: false);
 
         using var process = new Process { StartInfo = start };
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
         try
         {
             if (!process.Start())
             {
                 throw new InvalidOperationException("Failed to start agy.");
             }
+
         }
         catch (Exception ex)
         {
             throw new InvalidOperationException($"Failed to start agy: {ex.Message}", ex);
         }
 
+        using var job = WindowsProcessJob.Create();
+        var jobAssigned = job?.TryAssign(process) == true;
         var stdout = process.StandardOutput.ReadToEndAsync(cancellationToken);
         var stderr = process.StandardError.ReadToEndAsync(cancellationToken);
+        _log?.Info($"agy process started: {ProcessLocator.DescribeLaunch(executable)} " +
+                   $"launcher={Path.GetFileName(launch.FileName)} pid={process.Id} " +
+                   $"job={(jobAssigned ? "assigned" : "unavailable")}.");
         try
         {
             await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
-            return new AgyCommandResult(
+            var result = new AgyCommandResult(
                 process.ExitCode,
                 await stdout.ConfigureAwait(false),
                 await stderr.ConfigureAwait(false));
+            _log?.Info($"agy process exited: pid={process.Id} code={result.ExitCode} duration={stopwatch.Elapsed.TotalSeconds:0.###}s.");
+            return result;
         }
         finally
         {
@@ -144,6 +138,8 @@ public sealed class AgyUsageClient : IUsageProvider
             {
                 // The process may have exited between HasExited and Kill.
             }
+
+            _log?.Info($"agy process cleanup completed: duration={stopwatch.Elapsed.TotalSeconds:0.###}s.");
         }
     }
 
@@ -195,9 +191,11 @@ public sealed class AntigravityUsageClient : IUsageProvider
 
     public AntigravityUsageClient(
         string executableName = "agy",
-        Func<string, IReadOnlyList<string>, CancellationToken, Task<AgyCommandResult>>? commandRunner = null)
+        Func<string, IReadOnlyList<string>, CancellationToken, Task<AgyCommandResult>>? commandRunner = null,
+        AppLog? appLog = null,
+        TimeSpan? timeout = null)
     {
-        _inner = new AgyUsageClient(executableName, commandRunner);
+        _inner = new AgyUsageClient(executableName, commandRunner, appLog, timeout);
     }
 
     public Task<ProviderSnapshot> FetchAsync(CancellationToken cancellationToken) =>

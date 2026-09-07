@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using BuildnBits.Usage.Core.Models;
 using BuildnBits.Usage.Core.Providers;
 using BuildnBits.Usage.Core.Providers.Codex;
@@ -15,18 +16,23 @@ public sealed class UsageRefreshService : IDisposable
     private readonly AppLog _log;
     private readonly bool _ownsLog;
     private readonly CancellationTokenSource _cts = new();
-    private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly SemaphoreSlim _intervalChanged = new(0, 1);
     private readonly object _intervalSync = new();
+    private readonly object _refreshSync = new();
     private TimeSpan _interval;
     private CombinedUsageState _state = CombinedUsageState.Empty;
+    private RefreshProgress _progress = RefreshProgress.Idle;
     private Task? _loop;
+    private Task? _refreshInFlight;
     private int _started;
     private int _disposed;
 
     public event EventHandler<CombinedUsageState>? StateChanged;
+    public event EventHandler<RefreshProgress>? ProgressChanged;
 
-    public CombinedUsageState Current => _state;
+    public CombinedUsageState Current => Volatile.Read(ref _state);
+    public RefreshProgress Progress => Volatile.Read(ref _progress);
+    public bool IsRefreshing => Progress.IsRefreshing;
 
     public TimeSpan Interval
     {
@@ -118,17 +124,37 @@ public sealed class UsageRefreshService : IDisposable
         _loop = Task.Run(() => LoopAsync(_cts.Token));
     }
 
-    public async Task RefreshNowAsync(CancellationToken cancellationToken = default)
+    /// <summary>
+    /// Requests a refresh. Calls made while a refresh is running await that
+    /// same operation instead of starting a second provider pass.
+    /// </summary>
+    public Task RefreshNowAsync(CancellationToken cancellationToken = default)
     {
-        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _cts.Token);
-        await RefreshCoreAsync(linked.Token).ConfigureAwait(false);
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+
+        Task operation;
+        lock (_refreshSync)
+        {
+            if (_refreshInFlight is null || _refreshInFlight.IsCompleted)
+            {
+                // Keep provider work off the caller (normally WinForms) thread
+                // and install the shared task before releasing the lock.
+                _refreshInFlight = Task.Run(() => RefreshCoreAsync(_cts.Token));
+            }
+
+            operation = _refreshInFlight;
+        }
+
+        return cancellationToken.CanBeCanceled
+            ? operation.WaitAsync(cancellationToken)
+            : operation;
     }
 
     private async Task LoopAsync(CancellationToken cancellationToken)
     {
         try
         {
-            await RefreshCoreAsync(cancellationToken).ConfigureAwait(false);
+            await RefreshNowAsync(cancellationToken).ConfigureAwait(false);
             while (!cancellationToken.IsCancellationRequested)
             {
                 var interval = Interval;
@@ -170,7 +196,7 @@ public sealed class UsageRefreshService : IDisposable
                     // The delay elapsed; refresh now.
                 }
 
-                await RefreshCoreAsync(cancellationToken).ConfigureAwait(false);
+                await RefreshNowAsync(cancellationToken).ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -185,54 +211,75 @@ public sealed class UsageRefreshService : IDisposable
 
     private async Task RefreshCoreAsync(CancellationToken cancellationToken)
     {
-        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        _log.Info("Refresh start.");
+        var started = DateTimeOffset.UtcNow;
+        var pending = Providers();
+        SetProgress(new RefreshProgress(true, started, pending));
+        _log.Info($"Refresh start; providers={string.Join(',', pending)}.");
+
+        var tasks = new Dictionary<Task<ProviderSnapshot>, ProviderKind>
+        {
+            [FetchSafelyAsync(_codex, ProviderKind.Codex, cancellationToken)] = ProviderKind.Codex,
+            [FetchSafelyAsync(_grok, ProviderKind.Grok, cancellationToken)] = ProviderKind.Grok
+        };
+        if (_agy is not null)
+        {
+            tasks[FetchSafelyAsync(_agy, ProviderKind.Agy, cancellationToken)] = ProviderKind.Agy;
+        }
+
+        var anySuccess = false;
         try
         {
-            var previous = _state;
-            var codexTask = FetchSafelyAsync(_codex, ProviderKind.Codex, cancellationToken);
-            var grokTask = FetchSafelyAsync(_grok, ProviderKind.Grok, cancellationToken);
-            var agyTask = _agy is null
-                ? null
-                : FetchSafelyAsync(_agy, ProviderKind.Agy, cancellationToken);
+            while (tasks.Count > 0)
+            {
+                var completed = await Task.WhenAny(tasks.Keys).ConfigureAwait(false);
+                var kind = tasks[completed];
+                tasks.Remove(completed);
+                var snapshot = await completed.ConfigureAwait(false);
+                anySuccess |= IsSuccess(snapshot);
 
-            if (agyTask is null)
-            {
-                await Task.WhenAll(codexTask, grokTask).ConfigureAwait(false);
-            }
-            else
-            {
-                await Task.WhenAll(codexTask, grokTask, agyTask).ConfigureAwait(false);
-            }
+                var now = DateTimeOffset.UtcNow;
+                var current = Current;
+                var merged = kind switch
+                {
+                    ProviderKind.Codex => new CombinedUsageState(
+                        Merge(current.Codex, snapshot),
+                        current.Grok,
+                        current.Agy,
+                        IsSuccess(snapshot) ? now : current.LastSuccessfulRefreshUtc,
+                        started),
+                    ProviderKind.Grok => new CombinedUsageState(
+                        current.Codex,
+                        Merge(current.Grok, snapshot),
+                        current.Agy,
+                        IsSuccess(snapshot) ? now : current.LastSuccessfulRefreshUtc,
+                        started),
+                    _ => new CombinedUsageState(
+                        current.Codex,
+                        current.Grok,
+                        Merge(current.Agy, snapshot),
+                        IsSuccess(snapshot) ? now : current.LastSuccessfulRefreshUtc,
+                        started)
+                };
 
-            var now = DateTimeOffset.UtcNow;
-            var codex = Merge(previous.Codex, await codexTask.ConfigureAwait(false));
-            var grok = Merge(previous.Grok, await grokTask.ConfigureAwait(false));
-            var agy = agyTask is null
-                ? previous.Agy
-                : Merge(previous.Agy, await agyTask.ConfigureAwait(false));
-            var success = IsSuccess(codex) || IsSuccess(grok) ||
-                          (agyTask is not null && IsSuccess(agy));
-            _state = new CombinedUsageState(
-                codex,
-                grok,
-                agy,
-                success ? now : previous.LastSuccessfulRefreshUtc,
-                now);
-            if (success)
-            {
-                _cache.Save(_state);
-            }
-
-            LogProvider(codex);
-            LogProvider(grok);
-            if (agyTask is not null)
-            {
-                LogProvider(agy);
+                PublishState(merged);
+                pending.Remove(kind);
+                SetProgress(new RefreshProgress(true, started, pending));
             }
 
-            StateChanged?.Invoke(this, _state);
-            _log.Info($"Refresh end; success={success}.");
+            var final = Current;
+            if (anySuccess)
+            {
+                try
+                {
+                    _cache.Save(final);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException)
+                {
+                    _log.Error($"Usage cache save failed: {AppLog.Sanitize(ex.Message)}");
+                }
+            }
+
+            _log.Info($"Refresh end; success={anySuccess}; duration={(DateTimeOffset.UtcNow - started).TotalSeconds:0.###}s.");
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -241,37 +288,98 @@ public sealed class UsageRefreshService : IDisposable
         }
         catch (Exception ex)
         {
-            _log.Error($"Refresh failed: {ex.Message}");
+            _log.Error($"Refresh failed: {AppLog.Sanitize(ex.Message)}");
             throw;
         }
         finally
         {
-            _gate.Release();
+            SetProgress(RefreshProgress.Idle);
         }
     }
 
-    private void LogProvider(ProviderSnapshot snapshot)
+    private List<ProviderKind> Providers()
+    {
+        var providers = new List<ProviderKind> { ProviderKind.Codex, ProviderKind.Grok };
+        if (_agy is not null)
+        {
+            providers.Add(ProviderKind.Agy);
+        }
+
+        return providers;
+    }
+
+    private void PublishState(CombinedUsageState state)
+    {
+        Volatile.Write(ref _state, state);
+        var handlers = StateChanged?.GetInvocationList();
+        if (handlers is null)
+        {
+            return;
+        }
+
+        foreach (var callback in handlers.OfType<EventHandler<CombinedUsageState>>())
+        {
+            try
+            {
+                callback(this, state);
+            }
+            catch (Exception ex)
+            {
+                _log.Error($"State subscriber failed: {AppLog.Sanitize(ex.Message)}");
+            }
+        }
+    }
+
+    private void SetProgress(RefreshProgress progress)
+    {
+        var snapshot = progress.PendingProviders.Count == 0
+            ? progress with { PendingProviders = [] }
+            : progress with { PendingProviders = Array.AsReadOnly(progress.PendingProviders.ToArray()) };
+        Volatile.Write(ref _progress, snapshot);
+        var handlers = ProgressChanged?.GetInvocationList();
+        if (handlers is null)
+        {
+            return;
+        }
+
+        foreach (var callback in handlers.OfType<EventHandler<RefreshProgress>>())
+        {
+            try
+            {
+                callback(this, snapshot);
+            }
+            catch (Exception ex)
+            {
+                _log.Error($"Progress subscriber failed: {AppLog.Sanitize(ex.Message)}");
+            }
+        }
+    }
+
+    private void LogProvider(ProviderSnapshot snapshot, TimeSpan duration)
     {
         var detail = string.IsNullOrWhiteSpace(snapshot.StatusMessage)
             ? string.Empty
             : $" message={snapshot.StatusMessage}";
         _log.Info(
             $"Provider {snapshot.Provider}: status={snapshot.Status}, windows={snapshot.Windows.Count}, " +
-            $"plan={snapshot.PlanLabel ?? "unknown"}.{detail}");
+            $"plan={snapshot.PlanLabel ?? "unknown"}, duration={duration.TotalSeconds:0.###}s.{detail}");
     }
 
     private static bool IsSuccess(ProviderSnapshot snapshot) =>
         snapshot.Status is UsageStatus.Ok or UsageStatus.AuthRejected or UsageStatus.Unauthenticated or UsageStatus.MissingCli;
 
-    private static async Task<ProviderSnapshot> FetchSafelyAsync(
+    private async Task<ProviderSnapshot> FetchSafelyAsync(
         IUsageProvider provider,
         ProviderKind kind,
         CancellationToken cancellationToken)
     {
+        var stopwatch = Stopwatch.StartNew();
         try
         {
             var snapshot = await provider.FetchAsync(cancellationToken).ConfigureAwait(false);
-            return snapshot.Provider == kind ? snapshot : snapshot with { Provider = kind };
+            var normalized = snapshot.Provider == kind ? snapshot : snapshot with { Provider = kind };
+            LogProvider(normalized, stopwatch.Elapsed);
+            return normalized;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -279,13 +387,15 @@ public sealed class UsageRefreshService : IDisposable
         }
         catch (Exception ex)
         {
-            return new ProviderSnapshot(
+            var snapshot = new ProviderSnapshot(
                 kind,
                 UsageStatus.Error,
                 null,
                 [],
                 DateTimeOffset.UtcNow,
                 SanitizeError(ex.Message));
+            LogProvider(snapshot, stopwatch.Elapsed);
+            return snapshot;
         }
     }
 
@@ -358,9 +468,16 @@ public sealed class UsageRefreshService : IDisposable
             // The loop is already awake.
         }
 
+        Task? refresh;
+        lock (_refreshSync)
+        {
+            refresh = _refreshInFlight;
+        }
+
         try
         {
             _loop?.GetAwaiter().GetResult();
+            refresh?.GetAwaiter().GetResult();
         }
         catch (OperationCanceledException)
         {
@@ -368,14 +485,13 @@ public sealed class UsageRefreshService : IDisposable
         }
         catch (Exception ex)
         {
-            _log.Error($"Refresh shutdown failed: {ex.Message}");
+            _log.Error($"Refresh shutdown failed: {AppLog.Sanitize(ex.Message)}");
         }
 
         DisposeProvider(_codex);
         DisposeProvider(_grok);
         DisposeProvider(_agy);
         _intervalChanged.Dispose();
-        _gate.Dispose();
         _cts.Dispose();
         if (_ownsLog)
         {

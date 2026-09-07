@@ -2,6 +2,7 @@ using System.Drawing.Drawing2D;
 using BuildnBits.Usage.Core.Models;
 using BuildnBits.Usage.Core.Parsing;
 using BuildnBits.Usage.Core.Providers.Codex;
+using BuildnBits.Usage.Core.Refresh;
 using BuildnBits.Usage.Core.Storage;
 using BuildnBits.Usage.Tray.Icons;
 
@@ -47,6 +48,8 @@ public sealed class UsagePopupForm : Form
     private readonly Button _exit = StyledButton("Exit");
     private readonly List<ProviderSection> _sections = [];
     private int _maxPopupHeight = DefaultMaxHeight;
+    private CombinedUsageState _boundState = CombinedUsageState.Empty;
+    private RefreshProgress _progress = RefreshProgress.Idle;
 
     public event EventHandler? RefreshClicked;
     public event EventHandler? SettingsClicked;
@@ -107,6 +110,7 @@ public sealed class UsagePopupForm : Form
 
     public void Bind(CombinedUsageState state, bool launchAtLogin)
     {
+        _boundState = state;
         ClearSections();
         _sections.Add(BuildCodexSection(state.Codex));
         _sections.Add(BuildGrokSection(state.Grok));
@@ -116,7 +120,6 @@ public sealed class UsagePopupForm : Form
             _providers.Controls.Add(section);
         }
 
-        var last = state.LastSuccessfulRefreshUtc;
         var issueSnapshot = new[] { state.Codex, state.Grok, state.Agy }
             .FirstOrDefault(snapshot => snapshot.Status is not UsageStatus.Ok);
         var stale = new[] { state.Codex, state.Grok, state.Agy }
@@ -126,13 +129,57 @@ public sealed class UsagePopupForm : Form
             : issueSnapshot?.Status is UsageStatus.Unknown
                 ? "Waiting for the first refresh."
                 : stale ? "Showing last successful values." : "Up to date.";
-        _status.Text =
-            $"{RefreshAge(last)} · Codex {state.Codex.Status} · Grok {state.Grok.Status} · " +
-            $"Antigravity {state.Agy.Status}{Environment.NewLine}{detail}";
+        UpdateStatus(detail);
         _launch.Checked = launchAtLogin;
         ApplyTheme();
         ResizeForContent();
     }
+
+    public void SetRefreshProgress(RefreshProgress progress)
+    {
+        _progress = progress;
+        _refresh.Enabled = !progress.IsRefreshing;
+        UpdateStatus();
+        ResizeForContent();
+    }
+
+    private void UpdateStatus(string? detail = null)
+    {
+        var state = _boundState;
+        if (detail is null)
+        {
+            var issueSnapshot = new[] { state.Codex, state.Grok, state.Agy }
+                .FirstOrDefault(snapshot => snapshot.Status is not UsageStatus.Ok);
+            var stale = new[] { state.Codex, state.Grok, state.Agy }
+                .Any(snapshot => snapshot.Status is UsageStatus.Stale or UsageStatus.Error);
+            detail = issueSnapshot?.StatusMessage is { } message
+                ? AppLog.Sanitize(message)
+                : issueSnapshot?.Status is UsageStatus.Unknown
+                    ? "Waiting for the first refresh."
+                    : stale ? "Showing last successful values." : "Up to date.";
+        }
+
+        var providerLine =
+            $"Codex {state.Codex.Status} ({RefreshAge(state.Codex.FetchedAtUtc)}) · " +
+            $"Grok {state.Grok.Status} ({RefreshAge(state.Grok.FetchedAtUtc)}) · " +
+            $"Antigravity {state.Agy.Status} ({RefreshAge(state.Agy.FetchedAtUtc)})";
+        if (_progress.IsRefreshing)
+        {
+            var pending = _progress.PendingProviders.Count == 0
+                ? "finishing"
+                : string.Join(", ", _progress.PendingProviders.Select(ProviderLabel));
+            detail = $"Refreshing — waiting for {pending}.";
+        }
+
+        _status.Text = $"{providerLine}{Environment.NewLine}{detail}";
+    }
+
+    private static string ProviderLabel(ProviderKind provider) => provider switch
+    {
+        ProviderKind.Codex => "Codex",
+        ProviderKind.Grok => "Grok",
+        _ => "Antigravity"
+    };
 
     public void ShowNearCursor()
     {

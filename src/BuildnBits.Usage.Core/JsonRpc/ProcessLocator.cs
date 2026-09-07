@@ -1,3 +1,6 @@
+using System.Diagnostics;
+using System.Text;
+
 namespace BuildnBits.Usage.Core.JsonRpc;
 
 public static class ProcessLocator
@@ -86,6 +89,53 @@ public static class ProcessLocator
 
     public static string BuildRawArguments(IReadOnlyList<string> arguments) =>
         string.Join(" ", arguments);
+
+    /// <summary>
+    /// Builds the common hidden, redirected process configuration used by all
+    /// provider CLIs. Keeping this in one place prevents a provider from
+    /// accidentally inheriting the tray process's console.
+    /// </summary>
+    public static ProcessStartInfo CreateStartInfo(
+        string executable,
+        IReadOnlyList<string> arguments,
+        bool redirectStandardInput)
+    {
+        var launch = PrepareLaunch(executable, arguments);
+        var utf8 = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
+        var start = new ProcessStartInfo
+        {
+            FileName = launch.FileName,
+            RedirectStandardInput = redirectStandardInput,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            WindowStyle = ProcessWindowStyle.Hidden,
+            ErrorDialog = false,
+            StandardOutputEncoding = utf8,
+            StandardErrorEncoding = utf8
+        };
+
+        if (UsesCommandShell(launch.FileName))
+        {
+            start.Arguments = BuildRawArguments(launch.Arguments);
+        }
+        else
+        {
+            foreach (var argument in launch.Arguments)
+            {
+                start.ArgumentList.Add(argument);
+            }
+        }
+
+        return start;
+    }
+
+    public static string DescribeLaunch(string executable)
+    {
+        var kind = IsScriptShim(executable) ? "script-shim" : "native";
+        return $"target={Path.GetFileName(executable)} mode={kind}";
+    }
 
     private static string? FindInDirectory(string directory, string fileName)
     {

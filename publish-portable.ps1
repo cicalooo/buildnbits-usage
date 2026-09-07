@@ -4,7 +4,7 @@
 
 $ErrorActionPreference = "Stop"
 $root = $PSScriptRoot
-$version = "1.2.0"
+$version = "1.2.1"
 $props = Join-Path $root "Directory.Build.props"
 if (Test-Path $props) {
     $m = Select-String -Path $props -Pattern "<Version>([^<]+)</Version>" | Select-Object -First 1

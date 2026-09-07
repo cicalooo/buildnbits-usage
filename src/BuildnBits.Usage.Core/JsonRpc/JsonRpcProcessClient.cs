@@ -18,6 +18,7 @@ public sealed class JsonRpcProcessOptions
     public required IReadOnlyList<string> Arguments { get; init; }
     public TimeSpan Timeout { get; init; } = TimeSpan.FromSeconds(25);
     public bool EscapeForwardSlashes { get; init; }
+    public Action<string>? DiagnosticLog { get; init; }
 }
 
 /// <summary>
@@ -35,38 +36,19 @@ public sealed class JsonRpcProcessClient : IAsyncDisposable
     private readonly SemaphoreSlim _writeGate = new(1, 1);
     private int _nextId = 1;
     private readonly bool _escapeForwardSlashes;
+    private readonly Action<string>? _diagnosticLog;
     private readonly Task _readLoop;
+    private WindowsProcessJob? _job;
     private int _disposed;
 
     public JsonRpcProcessClient(JsonRpcProcessOptions options)
     {
         _escapeForwardSlashes = options.EscapeForwardSlashes;
+        _diagnosticLog = options.DiagnosticLog;
         var utf8 = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
         var launch = ProcessLocator.PrepareLaunch(options.FileName, options.Arguments);
-        var start = new ProcessStartInfo
-        {
-            FileName = launch.FileName,
-            RedirectStandardInput = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            WindowStyle = ProcessWindowStyle.Hidden,
-            ErrorDialog = false,
-            StandardOutputEncoding = utf8,
-            StandardInputEncoding = utf8
-        };
-        if (ProcessLocator.UsesCommandShell(launch.FileName))
-        {
-            start.Arguments = ProcessLocator.BuildRawArguments(launch.Arguments);
-        }
-        else
-        {
-            foreach (var arg in launch.Arguments)
-            {
-                start.ArgumentList.Add(arg);
-            }
-        }
+        var start = ProcessLocator.CreateStartInfo(options.FileName, options.Arguments, redirectStandardInput: true);
+        start.StandardInputEncoding = utf8;
 
         _process = new Process { StartInfo = start, EnableRaisingEvents = true };
         try
@@ -75,6 +57,19 @@ public sealed class JsonRpcProcessClient : IAsyncDisposable
             {
                 throw new JsonRpcException($"Failed to start {Path.GetFileName(options.FileName)}.");
             }
+
+            _job = WindowsProcessJob.Create();
+            var jobAssigned = _job?.TryAssign(_process) == true;
+            if (!jobAssigned)
+            {
+                _job?.Dispose();
+                _job = null;
+            }
+
+            TryLog(
+                $"Process started: {ProcessLocator.DescribeLaunch(options.FileName)} " +
+                $"launcher={Path.GetFileName(launch.FileName)} pid={_process.Id} " +
+                $"job={(jobAssigned ? "assigned" : "unavailable")}.");
         }
         catch (Exception ex) when (ex is not JsonRpcException)
         {
@@ -384,8 +379,35 @@ public sealed class JsonRpcProcessClient : IAsyncDisposable
             // ignored
         }
 
+        TryLog($"Process disposed: pid={SafeProcessId()}.");
         _process.Dispose();
+        _job?.Dispose();
+        _job = null;
         _lifetime.Dispose();
         _writeGate.Dispose();
+    }
+
+    private int SafeProcessId()
+    {
+        try
+        {
+            return _process.Id;
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ObjectDisposedException)
+        {
+            return 0;
+        }
+    }
+
+    private void TryLog(string message)
+    {
+        try
+        {
+            _diagnosticLog?.Invoke(message);
+        }
+        catch
+        {
+            // Diagnostics must never break process communication or cleanup.
+        }
     }
 }
