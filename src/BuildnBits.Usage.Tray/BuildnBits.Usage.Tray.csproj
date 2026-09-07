@@ -4,7 +4,7 @@
     <TargetFramework>net8.0-windows</TargetFramework>
     <UseWindowsForms>true</UseWindowsForms>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <ApplicationIcon />
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
     <RootNamespace>BuildnBits.Usage.Tray</RootNamespace>
     <Description>Notification-area host for Codex, Grok, and Google Antigravity usage.</Description>
     <Nullable>enable</Nullable>

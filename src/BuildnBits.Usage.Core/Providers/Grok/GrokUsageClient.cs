@@ -6,10 +6,18 @@ using BuildnBits.Usage.Core.Providers;
 
 namespace BuildnBits.Usage.Core.Providers.Grok;
 
-public sealed class GrokUsageClient : IUsageProvider
+public sealed class GrokUsageClient : IUsageProvider, IDisposable, IAsyncDisposable
 {
+    private const string ClientVersion = "1.2.0";
+
     private readonly Func<string, IReadOnlyList<string>, JsonRpcProcessClient> _factory;
     private readonly string _executableName;
+    private readonly SemaphoreSlim _operationGate = new(1, 1);
+    private JsonRpcProcessClient? _client;
+    private string? _clientExecutable;
+    private bool _initialized;
+    private bool _cachedTokenAvailable;
+    private int _disposed;
 
     public GrokUsageClient(
         string executableName = "grok",
@@ -27,127 +35,167 @@ public sealed class GrokUsageClient : IUsageProvider
 
     public async Task<ProviderSnapshot> FetchAsync(CancellationToken cancellationToken)
     {
-        var exe = ProcessLocator.FindOnPath(_executableName);
-        if (exe is null)
-        {
-            return new ProviderSnapshot(
-                ProviderKind.Grok,
-                UsageStatus.MissingCli,
-                null,
-                [],
-                DateTimeOffset.UtcNow,
-                "grok executable was not found on PATH.");
-        }
-
-        JsonRpcProcessClient client;
+        await _operationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            client = _factory(exe, ["--no-auto-update", "agent", "stdio"]);
-        }
-        catch (Exception ex)
-        {
-            return Error(ex.Message);
-        }
+            ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
 
-        await using var _ = client;
-        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeout.CancelAfter(TimeSpan.FromSeconds(20));
-
-        JsonNode? init;
-        try
-        {
-            init = await client.RequestAsync("initialize", new JsonObject
+            var exe = ProcessLocator.FindOnPath(_executableName);
+            if (exe is null)
             {
-                ["protocolVersion"] = 1,
-                ["clientInfo"] = new JsonObject
-                {
-                    ["name"] = "BuildnBits.Usage",
-                    ["version"] = "1.0.0"
-                },
-                ["capabilities"] = new JsonObject(),
-                ["clientCapabilities"] = new JsonObject
-                {
-                    ["fs"] = new JsonObject
-                    {
-                        ["readTextFile"] = false,
-                        ["writeTextFile"] = false
-                    },
-                    ["terminal"] = false
-                }
-            }, timeout.Token).ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            return Error(ex.Message);
-        }
+                return new ProviderSnapshot(
+                    ProviderKind.Grok,
+                    UsageStatus.MissingCli,
+                    null,
+                    [],
+                    DateTimeOffset.UtcNow,
+                    "grok executable was not found on PATH.");
+            }
 
-        if (!HasCachedToken(init))
-        {
-            return new ProviderSnapshot(
-                ProviderKind.Grok,
-                UsageStatus.Unauthenticated,
-                null,
-                [],
-                DateTimeOffset.UtcNow,
-                "Grok cached_token is unavailable. Run grok login; this app never reads credentials.");
-        }
-
-        JsonNode? auth = null;
-        try
-        {
-            auth = await client.RequestAsync("authenticate", new JsonObject
-            {
-                ["methodId"] = "cached_token",
-                ["authMethodId"] = "cached_token"
-            }, timeout.Token).ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            return new ProviderSnapshot(
-                ProviderKind.Grok,
-                UsageStatus.Unauthenticated,
-                null,
-                [],
-                DateTimeOffset.UtcNow,
-                Sanitize(ex.Message));
-        }
-
-        var plan = auth?["_meta"]?["subscription_tier"]?.GetValue<string>();
-
-        JsonNode? billing = await TryBillingAsync(client, timeout.Token).ConfigureAwait(false);
-        if (billing is null)
-        {
+            JsonRpcProcessClient client;
             try
             {
-                using var sessionTimeout = CancellationTokenSource.CreateLinkedTokenSource(timeout.Token);
-                sessionTimeout.CancelAfter(TimeSpan.FromSeconds(8));
-                await client.RequestAsync("session/new", new JsonObject
-                {
-                    ["cwd"] = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                    ["mcpServers"] = new JsonArray()
-                }, sessionTimeout.Token).ConfigureAwait(false);
-                billing = await TryBillingAsync(client, timeout.Token).ConfigureAwait(false);
+                client = await GetClientAsync(exe).ConfigureAwait(false);
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-                // Session creation is optional; billing may already have failed with -32601.
+                return Error(ex.Message);
+            }
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeout.CancelAfter(TimeSpan.FromSeconds(20));
+
+            try
+            {
+                if (!_initialized)
+                {
+                    var init = await client.RequestAsync("initialize", new JsonObject
+                    {
+                        ["protocolVersion"] = 1,
+                        ["clientInfo"] = new JsonObject
+                        {
+                            ["name"] = "BuildnBits.Usage",
+                            ["version"] = ClientVersion
+                        },
+                        ["capabilities"] = new JsonObject(),
+                        ["clientCapabilities"] = new JsonObject
+                        {
+                            ["fs"] = new JsonObject
+                            {
+                                ["readTextFile"] = false,
+                                ["writeTextFile"] = false
+                            },
+                            ["terminal"] = false
+                        }
+                    }, timeout.Token).ConfigureAwait(false);
+                    await client.NotifyAsync("initialized", new JsonObject(), timeout.Token).ConfigureAwait(false);
+                    _cachedTokenAvailable = HasCachedToken(init);
+                    _initialized = true;
+                }
+
+                if (!_cachedTokenAvailable)
+                {
+                    return new ProviderSnapshot(
+                        ProviderKind.Grok,
+                        UsageStatus.Unauthenticated,
+                        null,
+                        [],
+                        DateTimeOffset.UtcNow,
+                        "Grok cached_token is unavailable. Run grok login; this app never reads credentials.");
+                }
+
+                JsonNode? auth = await client.RequestAsync("authenticate", new JsonObject
+                {
+                    ["methodId"] = "cached_token",
+                    ["authMethodId"] = "cached_token"
+                }, timeout.Token).ConfigureAwait(false);
+
+                var plan = auth?["_meta"]?["subscription_tier"]?.GetValue<string>();
+                JsonNode? billing = await TryBillingAsync(client, timeout.Token).ConfigureAwait(false);
+                if (billing is null)
+                {
+                    using var sessionTimeout = CancellationTokenSource.CreateLinkedTokenSource(timeout.Token);
+                    sessionTimeout.CancelAfter(TimeSpan.FromSeconds(8));
+                    try
+                    {
+                        await client.RequestAsync("session/new", new JsonObject
+                        {
+                            ["cwd"] = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                            ["mcpServers"] = new JsonArray()
+                        }, sessionTimeout.Token).ConfigureAwait(false);
+                        billing = await TryBillingAsync(client, timeout.Token).ConfigureAwait(false);
+                    }
+                    catch (Exception)
+                    {
+                        // Session creation is optional; billing may already
+                        // have failed with -32601.
+                    }
+                }
+
+                if (billing is null)
+                {
+                    return Error("Grok billing method was not found on agent stdio.");
+                }
+
+                using var doc = JsonDocument.Parse(billing.ToJsonString());
+                var snapshot = GrokBillingParser.Parse(doc.RootElement, DateTimeOffset.UtcNow);
+                return snapshot with { PlanLabel = snapshot.PlanLabel ?? plan };
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                await ResetClientAsync(client).ConfigureAwait(false);
+                throw;
+            }
+            catch (Exception ex)
+            {
+                await ResetClientAsync(client).ConfigureAwait(false);
+                return Error(ex.Message);
             }
         }
-
-        if (billing is null)
+        finally
         {
-            return Error("Grok billing method was not found on agent stdio.");
+            _operationGate.Release();
+        }
+    }
+
+    private async Task<JsonRpcProcessClient> GetClientAsync(string executable)
+    {
+        if (_client is not null &&
+            !_client.HasExited &&
+            string.Equals(_clientExecutable, executable, StringComparison.OrdinalIgnoreCase))
+        {
+            return _client;
         }
 
-        using var doc = JsonDocument.Parse(billing.ToJsonString());
+        if (_client is not null)
+        {
+            await ResetClientAsync(_client).ConfigureAwait(false);
+        }
+
+        var client = _factory(executable, ["--no-auto-update", "agent", "stdio"]);
+        _client = client;
+        _clientExecutable = executable;
+        _initialized = false;
+        _cachedTokenAvailable = false;
+        return client;
+    }
+
+    private async Task ResetClientAsync(JsonRpcProcessClient client)
+    {
+        if (ReferenceEquals(_client, client))
+        {
+            _client = null;
+            _clientExecutable = null;
+            _initialized = false;
+            _cachedTokenAvailable = false;
+        }
+
         try
         {
-            var snapshot = GrokBillingParser.Parse(doc.RootElement, DateTimeOffset.UtcNow);
-            return snapshot with { PlanLabel = snapshot.PlanLabel ?? plan };
+            await client.DisposeAsync().ConfigureAwait(false);
         }
-        catch (Exception ex)
+        catch
         {
-            return Error(ex.Message);
+            // Do not mask the provider failure with cleanup errors.
         }
     }
 
@@ -204,14 +252,52 @@ public sealed class GrokUsageClient : IUsageProvider
 
     private static string Sanitize(string message)
     {
-        if (message.Contains("token", StringComparison.OrdinalIgnoreCase) ||
-            message.Contains("cookie", StringComparison.OrdinalIgnoreCase) ||
-            message.Contains("auth.json", StringComparison.OrdinalIgnoreCase) ||
-            message.Contains("bearer", StringComparison.OrdinalIgnoreCase))
+        if (string.IsNullOrWhiteSpace(message))
         {
             return "Grok request failed.";
         }
 
-        return message;
+        if (message.Contains("token", StringComparison.OrdinalIgnoreCase) ||
+            message.Contains("cookie", StringComparison.OrdinalIgnoreCase) ||
+            message.Contains("auth.json", StringComparison.OrdinalIgnoreCase) ||
+            message.Contains("bearer", StringComparison.OrdinalIgnoreCase) ||
+            message.Contains("password", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Grok request failed.";
+        }
+
+        return message.Length <= 500 ? message : message[..497] + "...";
+    }
+
+    public void Dispose() => DisposeAsync().AsTask().GetAwaiter().GetResult();
+
+    public async ValueTask DisposeAsync()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
+        {
+            return;
+        }
+
+        await _operationGate.WaitAsync().ConfigureAwait(false);
+        JsonRpcProcessClient? client;
+        try
+        {
+            client = _client;
+            _client = null;
+            _clientExecutable = null;
+            _initialized = false;
+            _cachedTokenAvailable = false;
+        }
+        finally
+        {
+            _operationGate.Release();
+        }
+
+        if (client is not null)
+        {
+            await client.DisposeAsync().ConfigureAwait(false);
+        }
+
+        _operationGate.Dispose();
     }
 }

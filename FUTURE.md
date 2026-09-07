@@ -16,5 +16,6 @@ Settings currently greys out Widgets Board actions so the portable product does 
 ## Other possible follow-ups
 
 - Per-monitor icon size override
-- Optional refresh interval in settings
 - Signed Store package if distribution needs it
+- Quiet hours for background refresh
+- Single-file ReadyToRun publishing after a startup smoke test

@@ -4,7 +4,7 @@
 
 $ErrorActionPreference = "Stop"
 $root = $PSScriptRoot
-$version = "1.0.0"
+$version = "1.2.0"
 $props = Join-Path $root "Directory.Build.props"
 if (Test-Path $props) {
     $m = Select-String -Path $props -Pattern "<Version>([^<]+)</Version>" | Select-Object -First 1
@@ -23,15 +23,18 @@ dotnet publish (Join-Path $root "src\BuildnBits.Usage.Tray\BuildnBits.Usage.Tray
   -c Release `
   -r win-x64 `
   --self-contained true `
-  -p:PublishSingleFile=false `
+  -p:PublishSingleFile=true `
+  -p:IncludeNativeLibrariesForSelfExtract=true `
+  -p:EnableCompressionInSingleFile=true `
+  -p:SatelliteResourceLanguages=en `
   -p:DebugType=None `
   -p:DebugSymbols=false `
   -o $out
 
 Get-ChildItem $out -Filter *.pdb -Recurse | Remove-Item -Force
+Get-ChildItem $out -Filter createdump.exe -Recurse | Remove-Item -Force
 Set-Content -Path (Join-Path $out "portable.flag") -Value "BuildnBits.Usage portable layout. Cache and settings are written to .\data\" -Encoding utf8NoBOM
 Copy-Item (Join-Path $root "README.md") (Join-Path $out "README.md") -Force
-Copy-Item (Join-Path $root "FUTURE.md") (Join-Path $out "FUTURE.md") -Force -ErrorAction SilentlyContinue
 Copy-Item (Join-Path $root "LICENSE") (Join-Path $out "LICENSE") -Force -ErrorAction SilentlyContinue
 
 if (Test-Path $zip) { Remove-Item $zip -Force }

@@ -13,6 +13,7 @@ public sealed class TrayApplicationContext : ApplicationContext
 {
     private readonly UsageCache _cache = new();
     private readonly AppSettingsStore _settingsStore = new();
+    private readonly AppLog _log = new();
     private readonly UsageRefreshService _refresh;
     private readonly NotifyIconHost _icons = new();
     private readonly UsagePopupForm _popup = new();
@@ -21,14 +22,20 @@ public sealed class TrayApplicationContext : ApplicationContext
 
     public TrayApplicationContext()
     {
-        _refresh = new UsageRefreshService(cache: _cache, agy: new AgyUsageClient());
         _settings = _settingsStore.Load();
+        _log.Info($"Application startup; refresh interval={_settings.RefreshIntervalMinutes} minutes.");
+        _refresh = new UsageRefreshService(
+            cache: _cache,
+            interval: TimeSpan.FromMinutes(_settings.RefreshIntervalMinutes),
+            agy: new AgyUsageClient(),
+            appLog: _log);
         _launchAtLogin = LaunchAtLogin.IsEnabled();
 
         _icons.PopupRequested += (_, _) => ShowPopup();
-        _icons.RefreshRequested += async (_, _) => await _refresh.RefreshNowAsync();
+        _icons.RefreshRequested += (_, _) => RequestRefresh();
+        _icons.RefreshIntervalRequested += (_, minutes) => SetRefreshInterval(minutes);
         _icons.SettingsRequested += (_, _) => OpenSettings();
-        _icons.DiagnosticsRequested += (_, _) => new DiagnosticsForm(_refresh.Current).Show();
+        _icons.DiagnosticsRequested += (_, _) => new DiagnosticsForm(_refresh.Current, _log).Show();
         _icons.ExitRequested += (_, _) => ExitThread();
         _icons.LaunchAtLoginToggled += (_, enabled) =>
         {
@@ -36,9 +43,9 @@ public sealed class TrayApplicationContext : ApplicationContext
             LaunchAtLogin.SetEnabled(enabled);
         };
 
-        _popup.RefreshClicked += async (_, _) => await _refresh.RefreshNowAsync();
+        _popup.RefreshClicked += (_, _) => RequestRefresh();
         _popup.SettingsClicked += (_, _) => OpenSettings();
-        _popup.DiagnosticsClicked += (_, _) => new DiagnosticsForm(_refresh.Current).Show();
+        _popup.DiagnosticsClicked += (_, _) => new DiagnosticsForm(_refresh.Current, _log).Show();
         _popup.ExitClicked += (_, _) => ExitThread();
         _popup.LaunchAtLoginChanged += (_, enabled) =>
         {
@@ -93,6 +100,7 @@ public sealed class TrayApplicationContext : ApplicationContext
         {
             _settings = dialog.Result;
             _launchAtLogin = LaunchAtLogin.IsEnabled();
+            _refresh.UpdateInterval(TimeSpan.FromMinutes(_settings.RefreshIntervalMinutes));
             _icons.Apply(_refresh.Current, _launchAtLogin, _settings);
             if (_popup.Visible)
             {
@@ -130,6 +138,41 @@ public sealed class TrayApplicationContext : ApplicationContext
         _refresh.Dispose();
         _icons.Dispose();
         _popup.Dispose();
+        _log.Dispose();
         base.ExitThreadCore();
+    }
+
+    private void RequestRefresh()
+    {
+        _ = RefreshAsync();
+    }
+
+    private async Task RefreshAsync()
+    {
+        try
+        {
+            await _refresh.RefreshNowAsync().ConfigureAwait(true);
+        }
+        catch (OperationCanceledException)
+        {
+            // Shutdown can cancel a manual refresh.
+        }
+        catch (Exception ex)
+        {
+            _log.Error($"Manual refresh failed: {ex.Message}");
+        }
+    }
+
+    private void SetRefreshInterval(int minutes)
+    {
+        var clamped = AppSettings.ClampRefreshIntervalMinutes(minutes);
+        _settings.RefreshIntervalMinutes = clamped;
+        _settingsStore.Save(_settings);
+        _refresh.UpdateInterval(TimeSpan.FromMinutes(clamped));
+        _icons.Apply(_refresh.Current, _launchAtLogin, _settings);
+        if (_popup.Visible)
+        {
+            _popup.Bind(_refresh.Current, _launchAtLogin);
+        }
     }
 }

@@ -26,6 +26,7 @@ public sealed class NotifyIconHost : IDisposable
     public event EventHandler? DiagnosticsRequested;
     public event EventHandler? ExitRequested;
     public event EventHandler<bool>? LaunchAtLoginToggled;
+    public event EventHandler<int>? RefreshIntervalRequested;
 
     public NotifyIconHost()
     {
@@ -61,9 +62,9 @@ public sealed class NotifyIconHost : IDisposable
         Replace(ref _grokIcon, _grok, UsageIconRenderer.Create(ProviderKind.Grok, grokRemaining, highContrast, largerDigits: larger));
         Replace(ref _agyIcon, _agy, UsageIconRenderer.Create(ProviderKind.Agy, agyRemaining, highContrast, largerDigits: larger));
 
-        _codex.Text = Truncate(CodexTooltip(state.Codex));
-        _grok.Text = Truncate(GrokTooltip(state.Grok));
-        _agy.Text = Truncate(AgyTooltip(state.Agy));
+        _codex.Text = Truncate(CodexTooltip(state.Codex, state.LastSuccessfulRefreshUtc));
+        _grok.Text = Truncate(GrokTooltip(state.Grok, state.LastSuccessfulRefreshUtc));
+        _agy.Text = Truncate(AgyTooltip(state.Agy, state.LastSuccessfulRefreshUtc));
         _codex.Visible = _settings.ShowCodexIcon;
         _grok.Visible = _settings.ShowGrokIcon;
         _agy.Visible = _settings.ShowAgyIcon;
@@ -107,6 +108,19 @@ public sealed class NotifyIconHost : IDisposable
         var menu = new ContextMenuStrip();
         menu.Items.Add("Open usage", null, (_, _) => PopupRequested?.Invoke(this, EventArgs.Empty));
         menu.Items.Add("Refresh", null, (_, _) => RefreshRequested?.Invoke(this, EventArgs.Empty));
+        var intervalMenu = new ToolStripMenuItem("Refresh interval");
+        foreach (var minutes in AppSettings.AllowedRefreshIntervalMinutes)
+        {
+            var item = new ToolStripMenuItem($"{minutes} minutes")
+            {
+                Checked = _settings.RefreshIntervalMinutes == minutes,
+                CheckOnClick = false
+            };
+            item.Click += (_, _) => RefreshIntervalRequested?.Invoke(this, minutes);
+            intervalMenu.DropDownItems.Add(item);
+        }
+
+        menu.Items.Add(intervalMenu);
         menu.Items.Add("Settings", null, (_, _) => SettingsRequested?.Invoke(this, EventArgs.Empty));
         var login = new ToolStripMenuItem("Launch at login") { Checked = launchAtLogin, CheckOnClick = true };
         login.CheckedChanged += (_, _) => LaunchAtLoginToggled?.Invoke(this, login.Checked);
@@ -132,27 +146,51 @@ public sealed class NotifyIconHost : IDisposable
         field = next;
     }
 
-    private static string CodexTooltip(ProviderSnapshot snapshot)
+    private static string CodexTooltip(ProviderSnapshot snapshot, DateTimeOffset? updatedAtUtc)
     {
         var five = snapshot.WindowByDuration(300);
         var week = snapshot.WindowByDuration(10080);
         var lowest = snapshot.LowestRemainingPercent;
-        return $"Codex {lowest:0}% remaining. 5h {five?.RemainingPercent:0}% ({ResetCountdown.LocalResetLabel(five?.ResetsAtUtc)}). 7d {week?.RemainingPercent:0}% ({ResetCountdown.LocalResetLabel(week?.ResetsAtUtc)}). {snapshot.Status}";
+        var plan = string.IsNullOrWhiteSpace(snapshot.PlanLabel) ? string.Empty : $" ({snapshot.PlanLabel})";
+        return $"{RefreshAge(updatedAtUtc)} · Codex{plan} {lowest:0}% remaining. 5h {five?.RemainingPercent:0}% ({ResetCountdown.LocalResetLabel(five?.ResetsAtUtc)}). 7d {week?.RemainingPercent:0}% ({ResetCountdown.LocalResetLabel(week?.ResetsAtUtc)}). {snapshot.Status}";
     }
 
-    private static string GrokTooltip(ProviderSnapshot snapshot)
+    private static string GrokTooltip(ProviderSnapshot snapshot, DateTimeOffset? updatedAtUtc)
     {
         var week = snapshot.Weekly ?? snapshot.Windows.FirstOrDefault();
-        return $"Grok weekly {week?.RemainingPercent:0}% remaining ({ResetCountdown.LocalResetLabel(week?.ResetsAtUtc)}). {snapshot.Status}";
+        var plan = string.IsNullOrWhiteSpace(snapshot.PlanLabel) ? string.Empty : $" ({snapshot.PlanLabel})";
+        return $"{RefreshAge(updatedAtUtc)} · Grok{plan} weekly {week?.RemainingPercent:0}% remaining ({ResetCountdown.LocalResetLabel(week?.ResetsAtUtc)}). {snapshot.Status}";
     }
 
-    private static string AgyTooltip(ProviderSnapshot snapshot)
+    private static string AgyTooltip(ProviderSnapshot snapshot, DateTimeOffset? updatedAtUtc)
     {
         var pools = snapshot.Windows.Count == 0
             ? "unavailable"
             : string.Join(", ", snapshot.Windows.Select(w =>
                 $"{w.Label} {w.RemainingPercent:0}% ({ResetCountdown.LocalResetLabel(w.ResetsAtUtc)})"));
-        return $"Google Antigravity [agy]: {pools}. {snapshot.Status}";
+        var plan = string.IsNullOrWhiteSpace(snapshot.PlanLabel) ? string.Empty : $" ({snapshot.PlanLabel})";
+        return $"{RefreshAge(updatedAtUtc)} · Google Antigravity [agy]{plan}: {pools}. {snapshot.Status}";
+    }
+
+    private static string RefreshAge(DateTimeOffset? updatedAtUtc)
+    {
+        if (updatedAtUtc is not { } updated)
+        {
+            return "Updated never";
+        }
+
+        var age = DateTimeOffset.UtcNow - updated;
+        if (age < TimeSpan.FromMinutes(1))
+        {
+            return "Updated just now";
+        }
+
+        if (age < TimeSpan.FromHours(1))
+        {
+            return $"Updated {(int)age.TotalMinutes}m ago";
+        }
+
+        return $"Updated {(int)age.TotalHours}h ago";
     }
 
     private static string Truncate(string value) =>

@@ -82,20 +82,30 @@ public sealed class AgyUsageClient : IUsageProvider
         IReadOnlyList<string> arguments,
         CancellationToken cancellationToken)
     {
+        var launch = ProcessLocator.PrepareLaunch(executable, arguments);
         var start = new ProcessStartInfo
         {
-            FileName = executable,
+            FileName = launch.FileName,
             RedirectStandardInput = false,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
             CreateNoWindow = true,
+            WindowStyle = ProcessWindowStyle.Hidden,
+            ErrorDialog = false,
             StandardOutputEncoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
             StandardErrorEncoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false)
         };
-        foreach (var argument in arguments)
+        if (ProcessLocator.UsesCommandShell(launch.FileName))
         {
-            start.ArgumentList.Add(argument);
+            start.Arguments = ProcessLocator.BuildRawArguments(launch.Arguments);
+        }
+        else
+        {
+            foreach (var argument in launch.Arguments)
+            {
+                start.ArgumentList.Add(argument);
+            }
         }
 
         using var process = new Process { StartInfo = start };

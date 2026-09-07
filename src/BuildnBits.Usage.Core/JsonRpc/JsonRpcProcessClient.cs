@@ -32,28 +32,40 @@ public sealed class JsonRpcProcessClient : IAsyncDisposable
     private readonly CancellationTokenSource _lifetime = new();
     private readonly Dictionary<int, TaskCompletionSource<JsonNode>> _pending = [];
     private readonly object _sync = new();
+    private readonly SemaphoreSlim _writeGate = new(1, 1);
     private int _nextId = 1;
     private readonly bool _escapeForwardSlashes;
     private readonly Task _readLoop;
+    private int _disposed;
 
     public JsonRpcProcessClient(JsonRpcProcessOptions options)
     {
         _escapeForwardSlashes = options.EscapeForwardSlashes;
         var utf8 = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
+        var launch = ProcessLocator.PrepareLaunch(options.FileName, options.Arguments);
         var start = new ProcessStartInfo
         {
-            FileName = options.FileName,
+            FileName = launch.FileName,
             RedirectStandardInput = true,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
             CreateNoWindow = true,
+            WindowStyle = ProcessWindowStyle.Hidden,
+            ErrorDialog = false,
             StandardOutputEncoding = utf8,
             StandardInputEncoding = utf8
         };
-        foreach (var arg in options.Arguments)
+        if (ProcessLocator.UsesCommandShell(launch.FileName))
         {
-            start.ArgumentList.Add(arg);
+            start.Arguments = ProcessLocator.BuildRawArguments(launch.Arguments);
+        }
+        else
+        {
+            foreach (var arg in launch.Arguments)
+            {
+                start.ArgumentList.Add(arg);
+            }
         }
 
         _process = new Process { StartInfo = start, EnableRaisingEvents = true };
@@ -61,12 +73,14 @@ public sealed class JsonRpcProcessClient : IAsyncDisposable
         {
             if (!_process.Start())
             {
-                throw new JsonRpcException($"Failed to start {options.FileName}.");
+                throw new JsonRpcException($"Failed to start {Path.GetFileName(options.FileName)}.");
             }
         }
         catch (Exception ex) when (ex is not JsonRpcException)
         {
-            throw new JsonRpcException($"Failed to start {options.FileName}: {ex.Message}", inner: ex);
+            throw new JsonRpcException(
+                $"Failed to start {Path.GetFileName(options.FileName)}: {ex.Message}",
+                inner: ex);
         }
 
         _stdin = _process.StandardInput;
@@ -75,8 +89,24 @@ public sealed class JsonRpcProcessClient : IAsyncDisposable
         _readLoop = ReadLoopAsync(_lifetime.Token);
     }
 
+    public bool HasExited
+    {
+        get
+        {
+            try
+            {
+                return _process.HasExited;
+            }
+            catch (InvalidOperationException)
+            {
+                return true;
+            }
+        }
+    }
+
     public async Task<JsonNode?> RequestAsync(string method, JsonNode? parameters, CancellationToken cancellationToken)
     {
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
         var id = Interlocked.Increment(ref _nextId);
         var tcs = new TaskCompletionSource<JsonNode>(TaskCreationOptions.RunContinuationsAsynchronously);
         lock (_sync)
@@ -119,6 +149,13 @@ public sealed class JsonRpcProcessClient : IAsyncDisposable
         {
             throw new JsonRpcException("JSON-RPC request timed out or the process ended.", inner: ex);
         }
+        finally
+        {
+            lock (_sync)
+            {
+                _pending.Remove(id);
+            }
+        }
     }
 
     public Task NotifyAsync(string method, JsonNode? parameters, CancellationToken cancellationToken)
@@ -138,6 +175,7 @@ public sealed class JsonRpcProcessClient : IAsyncDisposable
 
     private async Task WriteAsync(JsonObject payload, CancellationToken cancellationToken)
     {
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
         var json = payload.ToJsonString(new JsonSerializerOptions
         {
             Encoder = _escapeForwardSlashes
@@ -149,9 +187,17 @@ public sealed class JsonRpcProcessClient : IAsyncDisposable
             json = json.Replace("\\/", "/", StringComparison.Ordinal);
         }
 
-        await _stdin.WriteAsync(json.AsMemory(), cancellationToken).ConfigureAwait(false);
-        await _stdin.WriteAsync("\n".AsMemory(), cancellationToken).ConfigureAwait(false);
-        await _stdin.FlushAsync(cancellationToken).ConfigureAwait(false);
+        await _writeGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await _stdin.WriteAsync(json.AsMemory(), cancellationToken).ConfigureAwait(false);
+            await _stdin.WriteAsync("\n".AsMemory(), cancellationToken).ConfigureAwait(false);
+            await _stdin.FlushAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _writeGate.Release();
+        }
     }
 
     private async Task ReadLoopAsync(CancellationToken cancellationToken)
@@ -302,6 +348,11 @@ public sealed class JsonRpcProcessClient : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
+        {
+            return;
+        }
+
         _lifetime.Cancel();
         try
         {
@@ -335,5 +386,6 @@ public sealed class JsonRpcProcessClient : IAsyncDisposable
 
         _process.Dispose();
         _lifetime.Dispose();
+        _writeGate.Dispose();
     }
 }

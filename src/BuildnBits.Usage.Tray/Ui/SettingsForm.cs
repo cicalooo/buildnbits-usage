@@ -13,6 +13,12 @@ public sealed class SettingsForm : Form
     private readonly CheckBox _grok = new() { Text = "Show Grok notification-area icon", AutoSize = true };
     private readonly CheckBox _agy = new() { Text = "Show Google Antigravity [agy] notification-area icon", AutoSize = true };
     private readonly CheckBox _larger = new() { Text = "Larger tray digits", AutoSize = true };
+    private readonly ComboBox _interval = new()
+    {
+        DropDownStyle = ComboBoxStyle.DropDownList,
+        Width = 180,
+        IntegralHeight = true
+    };
     private readonly Label _cache = new() { AutoSize = true };
     private readonly Label _widget = new()
     {
@@ -36,7 +42,7 @@ public sealed class SettingsForm : Form
         FormBorderStyle = FormBorderStyle.FixedDialog;
         StartPosition = FormStartPosition.CenterScreen;
         AutoScaleMode = AutoScaleMode.Dpi;
-        ClientSize = new Size(520, 360);
+        ClientSize = new Size(520, 420);
         MaximizeBox = false;
         MinimizeBox = false;
         Font = new Font("Segoe UI", 9.5f);
@@ -47,6 +53,13 @@ public sealed class SettingsForm : Form
         _grok.Checked = current.ShowGrokIcon;
         _agy.Checked = current.ShowAgyIcon;
         _larger.Checked = current.LargerTrayDigits;
+        _interval.Items.AddRange(["3 minutes", "5 minutes (default)", "10 minutes"]);
+        _interval.SelectedIndex = current.RefreshIntervalMinutes switch
+        {
+            3 => 0,
+            10 => 2,
+            _ => 1
+        };
         _cache.Text = $"Cache folder:\n{Path.GetDirectoryName(cachePath)}";
 
         var openCache = new Button { Text = "Open cache folder", AutoSize = true };
@@ -78,6 +91,20 @@ public sealed class SettingsForm : Form
         layout.Controls.Add(_grok);
         layout.Controls.Add(_agy);
         layout.Controls.Add(_larger);
+        var intervalRow = new FlowLayoutPanel
+        {
+            AutoSize = true,
+            WrapContents = false,
+            Margin = new Padding(0, 8, 0, 0)
+        };
+        intervalRow.Controls.Add(new Label
+        {
+            Text = "Update every:",
+            AutoSize = true,
+            Padding = new Padding(0, 5, 8, 0)
+        });
+        intervalRow.Controls.Add(_interval);
+        layout.Controls.Add(intervalRow);
         layout.Controls.Add(_widget);
         layout.Controls.Add(openWidgets);
         layout.Controls.Add(copyPack);
@@ -101,7 +128,13 @@ public sealed class SettingsForm : Form
                 ShowCodexIcon = _codex.Checked,
                 ShowGrokIcon = _grok.Checked,
                 ShowAgyIcon = _agy.Checked,
-                LargerTrayDigits = _larger.Checked
+                LargerTrayDigits = _larger.Checked,
+                RefreshIntervalMinutes = _interval.SelectedIndex switch
+                {
+                    0 => 3,
+                    2 => 10,
+                    _ => AppSettings.DefaultRefreshIntervalMinutes
+                }
             };
             _store.Save(Result);
             LaunchAtLogin.SetEnabled(_launch.Checked);

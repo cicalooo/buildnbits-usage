@@ -1,5 +1,9 @@
 # BuildnBits.Usage
 
+<p align="center">
+  <img src="src/BuildnBits.Usage.Package/Images/StoreLogo.png" alt="BuildnBits Usage application logo" width="150">
+</p>
+
 > A Windows 11 notification-area app for checking your remaining Codex, Grok, and Google Antigravity usage at a glance.
 
 [![Platform: Windows 11](https://img.shields.io/badge/platform-Windows%2011-0078D4?logo=windows&logoColor=white)](#requirements)
@@ -9,13 +13,14 @@
 
 - Shows Codex 5-hour and 7-day windows, Grok weekly usage, and Google Antigravity model quotas.
 - Keeps three compact tray icons visible for the Codex, Grok, and Antigravity percentages.
-- Opens a single status popup with remaining time, reset times, refresh controls, settings, and diagnostics.
-- Refreshes on startup, manual refresh, resume from sleep, network recovery, and roughly every 10 minutes.
+- Opens a compact, scrollable status popup with every Antigravity quota pool, remaining time, reset times, refresh controls, settings, and diagnostics.
+- Refreshes on startup, manual refresh, resume from sleep, network recovery, and roughly every 5 minutes by default.
+- Supports 3-minute, 5-minute, and 10-minute update intervals from Settings or the tray menu.
 - Stores usage metadata only—never tokens, cookies, prompts, or account credentials.
 
 ## Screenshots
 
-The checked-in screenshots show the original v1.0 two-provider layout; current builds add the Google Antigravity card and tray icon described below.
+The checked-in screenshots show the three-provider tray experience; current builds use the compact, scrollable provider-row popup described below.
 
 ### Usage tracker popup
 
@@ -70,6 +75,8 @@ Tokens, cookies, prompts, and account credentials are never copied or logged.
 
 Temporary refresh failures retain the last successful percentages and mark the status as stale.
 
+The application log is append-only, capped at 512 KB, and rotates to app.log.1. It contains startup, refresh, provider-status, and process-launch diagnostics after credential-safe redaction; raw JSON-RPC responses, stderr, tokens, cookies, and prompts are never logged.
+
 ## Projects
 
 | Project | Responsibility |
@@ -104,7 +111,7 @@ dotnet run --project src/BuildnBits.Usage.Tray/BuildnBits.Usage.Tray.csproj
 
 ## Portable build
 
-Create a self-contained win-x64 folder with no .NET installation or MSIX required:
+Create a self-contained, single-file win-x64 folder with no .NET installation or MSIX required. The first launch may briefly extract native runtime components to the normal user temporary directory:
 
 ```powershell
 pwsh -File publish-portable.ps1
@@ -144,7 +151,7 @@ For development signing, see [the signing guide](src/BuildnBits.Usage.Package/si
 
 ## Settings and future work
 
-Settings—available from either tray icon—cover launch at login, which icons to show, larger tray digits, and the cache folder. Tokens and cookies are never stored in Settings.
+Settings—available from either tray icon—cover launch at login, which icons to show, larger tray digits, the 3/5/10-minute refresh interval, and the cache folder. Diagnostics also offers Open log and Copy recent log. Tokens and cookies are never stored in Settings or the application log.
 
 Widgets Board integration is currently disabled and tracked in [FUTURE.md](FUTURE.md). The MSIX packaging project remains in the repository for that future work.
 
