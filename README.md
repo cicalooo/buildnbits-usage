@@ -1,13 +1,14 @@
 # BuildnBits.Usage
 
-<p align="center">
-  <img src="src/BuildnBits.Usage.Package/Images/StoreLogo.png" alt="BuildnBits Usage application logo" width="150">
-</p>
-
 > A Windows 11 notification-area app for checking your remaining Codex, Grok, and Google Antigravity usage at a glance.
 
-[![Platform: Windows 11](https://img.shields.io/badge/platform-Windows%2011-0078D4?logo=windows&logoColor=white)](#requirements)
-[![.NET 8](https://img.shields.io/badge/.NET-8.0-512BD4?logo=dotnet&logoColor=white)](#build-from-source)
+<p align="center">
+  <img
+    width="480"
+    alt="ChatGPT Image Sep 7, 2026, 09_22_53 PM"
+    src="https://github.com/user-attachments/assets/957ce101-0590-4e3b-b14c-f3270c3dc03c"
+  />
+</p>
 
 ## At a glance
 
