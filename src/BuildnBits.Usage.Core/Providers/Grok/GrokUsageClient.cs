@@ -9,7 +9,7 @@ namespace BuildnBits.Usage.Core.Providers.Grok;
 
 public sealed class GrokUsageClient : IUsageProvider, IDisposable, IAsyncDisposable
 {
-    private const string ClientVersion = "1.2.1";
+    private const string ClientVersion = "1.3.0";
 
     private readonly Func<string, IReadOnlyList<string>, JsonRpcProcessClient> _factory;
     private readonly string _executableName;

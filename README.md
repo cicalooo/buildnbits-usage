@@ -12,7 +12,8 @@
 
 ## At a glance
 
-- Shows Codex 5-hour and 7-day windows, Grok weekly usage, and Google Antigravity model quotas.
+- Shows Codex 5h/7d windows, Grok Build and Bot remaining usage, and Google Antigravity model quotas.
+- Uses compact reset captions (`4h 12m · Fri 16:01`) and short labels (`5h`, `7d`, `Gemini 5h`).
 - Keeps three compact tray icons visible for the Codex, Grok, and Antigravity percentages.
 - Opens a compact, scrollable status popup with every Antigravity quota pool, remaining time, reset times, refresh controls, settings, and diagnostics.
 - Refreshes on startup, manual refresh, resume from sleep, network recovery, and roughly every 5 minutes by default. Provider results appear progressively, so a slow CLI does not hold back the others.
@@ -46,7 +47,7 @@ Replacement taskbars such as StartAllBack or ExplorerPatcher may work when they 
 | Provider | Connection | What is shown | Authentication |
 | --- | --- | --- | --- |
 | **Codex** | `codex app-server --listen stdio://` | 5-hour and 7-day remaining usage, reset times | ChatGPT subscription login; API-key authentication is rejected |
-| **Grok** | `grok --no-auto-update agent stdio` | Weekly remaining usage and reset time | `cached_token` only |
+| **Grok** | `grok --no-auto-update agent stdio` | Build and Bot remaining usage and shared weekly reset | `cached_token` only |
 | **Google Antigravity [agy]** | `agy -p /usage --output-format json` | Weekly remaining quota for each model pool and reset times | Existing `agy` sign-in; credentials stay in the CLI keyring |
 
 ### Codex
@@ -55,7 +56,7 @@ BuildnBits.Usage calls `initialize`, `account/read`, and `account/rateLimits/rea
 
 ### Grok
 
-The app calls `x.ai/billing` using `cached_token`. It never reads or stores `~/.grok/auth.json` or any other credentials.
+The app calls `x.ai/billing` using `cached_token`. When the payload includes `config.productUsage`, Build is `PRODUCT_GROK_BUILD` / product `2` and Bot is `PRODUCT_GROK_BOT` / `PRODUCT_CHAT` / product `4`. Remaining is `100 - usagePercent`. Unknown products are ignored. If `productUsage` is absent, the aggregate `creditUsagePercent` is shown as Build only. The Grok tray icon is the lower of the visible Grok rows. The app never reads or stores `~/.grok/auth.json` or any other credentials.
 
 ### Google Antigravity [agy]
 
