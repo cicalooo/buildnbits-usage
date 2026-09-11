@@ -12,7 +12,7 @@
 
 ## At a glance
 
-- Shows Codex 5h/7d windows, Grok Build and Bot remaining usage, and Google Antigravity model quotas.
+- Shows Codex 5h/7d windows, Grok Build remaining usage (and Bot when billing sends it), and Google Antigravity model quotas.
 - Uses compact reset captions (`4h 12m · Fri 16:01`) and short labels (`5h`, `7d`, `Gemini 5h`).
 - Keeps three compact tray icons visible for the Codex, Grok, and Antigravity percentages.
 - Opens a compact, scrollable status popup with every Antigravity quota pool, remaining time, reset times, refresh controls, settings, and diagnostics.
@@ -47,7 +47,7 @@ Replacement taskbars such as StartAllBack or ExplorerPatcher may work when they 
 | Provider | Connection | What is shown | Authentication |
 | --- | --- | --- | --- |
 | **Codex** | `codex app-server --listen stdio://` | 5-hour and 7-day remaining usage, reset times | ChatGPT subscription login; API-key authentication is rejected |
-| **Grok** | `grok --no-auto-update agent stdio` | Build and Bot remaining usage and shared weekly reset | `cached_token` only |
+| **Grok** | `grok --no-auto-update agent stdio` | Build remaining usage; Bot row when `productUsage` includes Chat/Bot; shared weekly reset | `cached_token` only |
 | **Google Antigravity [agy]** | `agy -p /usage --output-format json` | Weekly remaining quota for each model pool and reset times | Existing `agy` sign-in; credentials stay in the CLI keyring |
 
 ### Codex
@@ -56,7 +56,21 @@ BuildnBits.Usage calls `initialize`, `account/read`, and `account/rateLimits/rea
 
 ### Grok
 
-The app calls `x.ai/billing` using `cached_token`. When the payload includes `config.productUsage`, Build is `PRODUCT_GROK_BUILD` / product `2` and Bot is `PRODUCT_GROK_BOT` / `PRODUCT_CHAT` / product `4`. Remaining is `100 - usagePercent`. Unknown products are ignored. If `productUsage` is absent, the aggregate `creditUsagePercent` is shown as Build only. The Grok tray icon is the lower of the visible Grok rows. The app never reads or stores `~/.grok/auth.json` or any other credentials.
+The app calls `x.ai/billing` (and `_x.ai/billing` when needed) using `cached_token` from `grok --no-auto-update agent stdio`. It never reads or stores `~/.grok/auth.json`, cookies, or tokens, and it does not scrape grok.com.
+
+#### Build vs Bot (Chat)
+
+| Popup / Adaptive Card label | Matched `config.productUsage[].product` values |
+| --- | --- |
+| **Build** | `2`, `"2"`, `PRODUCT_GROK_BUILD`, `GROK_BUILD`, `BUILD` |
+| **Bot** | `4`, `"4"`, `PRODUCT_GROK_BOT`, `GROK_BOT`, `BOT`, `PRODUCT_CHAT`, `CHAT` |
+
+- **Chat is not a separate row.** Wire names like `PRODUCT_CHAT` / `CHAT` map to the same **Bot** label. Imagine, Voice, API, App Builder, and other unknown products are ignored.
+- Remaining for each matched product is `100 - usagePercent` (same convention as `creditUsagePercent`). Both rows share the weekly `currentPeriod.end` reset when present.
+- Matching is case-insensitive after stripping a `PRODUCT_` prefix. The first Build match and the first Bot match win. If both Chat and Bot strings appear, the first Bot-mapped entry is kept.
+- **If `productUsage` is missing or empty** (common on some SuperGrok CLI billing replies today), the aggregate `creditUsagePercent` is shown as a single **Build** row. The app does **not** invent a Bot row or a `0%` Bot value.
+- **If Bot/Chat is absent from `productUsage` but Build is present**, only Build is shown.
+- The Grok tray icon is the lowest remaining percent among the Grok rows that exist (Build and/or Bot).
 
 ### Google Antigravity [agy]
 
@@ -169,3 +183,4 @@ Where the host OS allows it, verify the following:
 - HTTP 429 responses, network loss, malformed JSON, and process timeouts.
 
 Automated tests cover these error paths where a child process can be spawned.
+
