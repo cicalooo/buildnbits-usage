@@ -7,6 +7,9 @@ namespace BuildnBits.Usage.Core.Providers.Grok;
 
 public static class GrokBillingParser
 {
+    public const string BuildLabel = "Build";
+    public const string BotLabel = "Bot";
+
     public static ProviderSnapshot Parse(JsonElement result, DateTimeOffset nowUtc)
     {
         var root = result;
@@ -15,14 +18,106 @@ public static class GrokBillingParser
             root = nested;
         }
 
-        var usedRaw = ReadUsedPercent(root);
-        var remaining = PercentageMath.RemainingFromUsed(usedRaw);
-        var used = PercentageMath.ClampPercent(usedRaw);
         var resets = ReadReset(root);
         var plan = ReadString(result, "subscriptionTier") ?? ReadString(root, "subscriptionTier");
+        var duration = ReadDurationMinutes(root);
+        var windows = ReadProductWindows(root, resets, duration);
 
-        var window = new UsageWindow("Weekly", null, used, remaining, resets);
-        return new ProviderSnapshot(ProviderKind.Grok, UsageStatus.Ok, plan, [window], nowUtc, null);
+        if (windows.Count == 0)
+        {
+            var usedRaw = ReadUsedPercent(root);
+            windows.Add(new UsageWindow(
+                BuildLabel,
+                duration,
+                PercentageMath.ClampPercent(usedRaw),
+                PercentageMath.RemainingFromUsed(usedRaw),
+                resets));
+        }
+
+        return new ProviderSnapshot(ProviderKind.Grok, UsageStatus.Ok, plan, windows, nowUtc, null);
+    }
+
+    private static List<UsageWindow> ReadProductWindows(
+        JsonElement root,
+        DateTimeOffset? resets,
+        int? duration)
+    {
+        var windows = new List<UsageWindow>(2);
+        if (!root.TryGetProperty("productUsage", out var list) || list.ValueKind != JsonValueKind.Array)
+        {
+            return windows;
+        }
+
+        UsageWindow? build = null;
+        UsageWindow? bot = null;
+        foreach (var item in list.EnumerateArray())
+        {
+            if (item.ValueKind != JsonValueKind.Object)
+            {
+                continue;
+            }
+
+            if (!item.TryGetProperty("product", out var productEl))
+            {
+                continue;
+            }
+
+            var label = GrokProductMap.LabelFor(productEl);
+            if (label is null || !TryReadUsagePercent(item, out var usedRaw))
+            {
+                continue;
+            }
+
+            var window = new UsageWindow(
+                label,
+                duration,
+                PercentageMath.ClampPercent(usedRaw),
+                PercentageMath.RemainingFromUsed(usedRaw),
+                resets);
+
+            if (label == BuildLabel)
+            {
+                build ??= window;
+            }
+            else if (label == BotLabel)
+            {
+                bot ??= window;
+            }
+        }
+
+        if (build is not null)
+        {
+            windows.Add(build);
+        }
+
+        if (bot is not null)
+        {
+            windows.Add(bot);
+        }
+
+        return windows;
+    }
+
+    private static bool TryReadUsagePercent(JsonElement item, out double usedRaw)
+    {
+        usedRaw = 0;
+        return item.TryGetProperty("usagePercent", out var p) &&
+               p.ValueKind == JsonValueKind.Number &&
+               p.TryGetDouble(out usedRaw);
+    }
+
+    private static int? ReadDurationMinutes(JsonElement root)
+    {
+        if (root.TryGetProperty("currentPeriod", out var period) && period.ValueKind == JsonValueKind.Object)
+        {
+            var type = ReadString(period, "type");
+            if (type is not null && type.Contains("WEEKLY", StringComparison.OrdinalIgnoreCase))
+            {
+                return 10080;
+            }
+        }
+
+        return null;
     }
 
     private static double ReadUsedPercent(JsonElement root)
