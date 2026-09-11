@@ -70,7 +70,8 @@ public class CodexParsingTests
         var now = new DateTimeOffset(2026, 1, 2, 14, 0, 0, TimeSpan.Zero);
         var remaining = ResetCountdown.Remaining(resets, now);
         Assert.Equal(TimeSpan.FromHours(1), remaining);
-        Assert.Contains("remaining", ResetCountdown.Format(remaining));
-        Assert.StartsWith("resets", ResetCountdown.LocalResetLabel(resets));
+        Assert.Equal("1h", ResetCountdown.Format(remaining));
+        Assert.Equal(resets.ToLocalTime().ToString("ddd HH:mm"), ResetCountdown.LocalResetLabel(resets));
+        Assert.Equal($"1h · {resets.ToLocalTime():ddd HH:mm}", ResetCountdown.Caption(resets, now));
     }
 }
