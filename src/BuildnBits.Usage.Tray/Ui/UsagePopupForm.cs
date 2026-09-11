@@ -195,19 +195,38 @@ public sealed class UsagePopupForm : Form
         Activate();
     }
 
+    private static void AddOrderedRows(ProviderSection section, IEnumerable<UsageWindow> windows)
+    {
+        foreach (var window in windows
+                     .OrderBy(window => window.ResetsAtUtc ?? DateTimeOffset.MaxValue)
+                     .ThenBy(window => window.Label, StringComparer.OrdinalIgnoreCase))
+        {
+            section.AddRow(UsageLabel.Display(window.Label), window);
+        }
+    }
+
     private ProviderSection BuildCodexSection(ProviderSnapshot snapshot)
     {
         var section = new ProviderSection("Codex", snapshot, UsageIconRenderer.CodexColor);
         if (HasUsageRows(snapshot))
         {
-            section.AddRow("5-hour", snapshot.WindowByDuration(CodexWindowDurations.FiveHourMinutes));
-            section.AddRow("7-day", snapshot.WindowByDuration(CodexWindowDurations.SevenDayMinutes));
-            foreach (var window in snapshot.Windows.Where(window =>
-                         window.DurationMinutes is not CodexWindowDurations.FiveHourMinutes and
-                         not CodexWindowDurations.SevenDayMinutes))
+            var windows = new List<UsageWindow>();
+            var five = snapshot.WindowByDuration(CodexWindowDurations.FiveHourMinutes);
+            var week = snapshot.WindowByDuration(CodexWindowDurations.SevenDayMinutes);
+            if (five is not null)
             {
-                section.AddRow(window.Label, window);
+                windows.Add(five);
             }
+
+            if (week is not null)
+            {
+                windows.Add(week);
+            }
+
+            windows.AddRange(snapshot.Windows.Where(window =>
+                window.DurationMinutes is not CodexWindowDurations.FiveHourMinutes and
+                not CodexWindowDurations.SevenDayMinutes));
+            AddOrderedRows(section, windows);
         }
 
         section.Finish();
@@ -219,7 +238,18 @@ public sealed class UsagePopupForm : Form
         var section = new ProviderSection("Grok", snapshot, UsageIconRenderer.GrokColor);
         if (HasUsageRows(snapshot))
         {
-            section.AddRow("Weekly", snapshot.Weekly ?? snapshot.Windows.FirstOrDefault());
+            var grokWindows = snapshot.Windows
+                .Where(window =>
+                    string.Equals(window.Label, "Build", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(window.Label, "Bot", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(window.Label, "Weekly", StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            if (grokWindows.Count == 0)
+            {
+                grokWindows.AddRange(snapshot.Windows.Take(1));
+            }
+
+            AddOrderedRows(section, grokWindows);
         }
 
         section.Finish();
@@ -231,10 +261,7 @@ public sealed class UsagePopupForm : Form
         var section = new ProviderSection("Antigravity", snapshot, UsageIconRenderer.AgyColor);
         if (HasUsageRows(snapshot))
         {
-            foreach (var window in snapshot.Windows)
-            {
-                section.AddRow(window.Label, window);
-            }
+            AddOrderedRows(section, snapshot.Windows);
         }
 
         section.Finish();
@@ -477,7 +504,7 @@ internal sealed class UsageRow : UserControl
     public UsageRow(string label, Color accent)
     {
         _accent = accent;
-        Height = 34;
+        Height = 30;
         Width = 406;
         Margin = new Padding(0, 0, 0, 3);
         Padding = new Padding(6, 1, 6, 6);
@@ -534,10 +561,7 @@ internal sealed class UsageRow : UserControl
     {
         _remaining = window is null ? 0 : PercentageMath.DisplayPercent(window.RemainingPercent);
         _percent.Text = window is null ? "—" : $"{_remaining}%";
-        _caption.Text = window is null
-            ? "unavailable"
-            : $"{ResetCountdown.Format(ResetCountdown.Remaining(window.ResetsAtUtc, nowUtc))}\n" +
-              ResetCountdown.LocalResetLabel(window.ResetsAtUtc);
+        _caption.Text = window is null ? "unavailable" : ResetCountdown.Caption(window.ResetsAtUtc, nowUtc);
         if (window is not null)
         {
             _toolTip.SetToolTip(this, window.Label);
