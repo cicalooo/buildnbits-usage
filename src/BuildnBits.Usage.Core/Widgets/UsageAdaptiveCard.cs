@@ -30,7 +30,7 @@ public static class UsageAdaptiveCard
             },
             {
               "type": "TextBlock",
-              "text": "Grok ${grokRemaining}% weekly",
+              "text": "Grok ${grokBuildRemaining}% build · ${grokBotRemaining}% bot",
               "$when": "${$host.widgetSize==\"small\"}",
               "wrap": true
             },
@@ -51,12 +51,12 @@ public static class UsageAdaptiveCard
                 },
                 {
                   "type": "TextBlock",
-                  "text": "5-hour ${codexFiveRemaining}% remaining · ${codexFiveCountdown}",
+                  "text": "5h ${codexFiveRemaining}% · ${codexFiveCountdown}",
                   "wrap": true
                 },
                 {
                   "type": "TextBlock",
-                  "text": "7-day ${codexWeekRemaining}% remaining · ${codexWeekCountdown}",
+                  "text": "7d ${codexWeekRemaining}% · ${codexWeekCountdown}",
                   "wrap": true
                 },
                 {
@@ -66,7 +66,12 @@ public static class UsageAdaptiveCard
                 },
                 {
                   "type": "TextBlock",
-                  "text": "Weekly ${grokRemaining}% remaining · ${grokCountdown}",
+                  "text": "Build ${grokBuildRemaining}% · ${grokBuildCountdown}",
+                  "wrap": true
+                },
+                {
+                  "type": "TextBlock",
+                  "text": "Bot ${grokBotRemaining}% · ${grokBotCountdown}",
                   "wrap": true
                 },
                 {
@@ -76,7 +81,7 @@ public static class UsageAdaptiveCard
                 },
                 {
                   "type": "TextBlock",
-                  "text": "Lowest weekly pool ${agyRemaining}% remaining · ${agyCountdown}",
+                  "text": "Lowest ${agyRemaining}% · ${agyCountdown}",
                   "wrap": true
                 },
                 {
@@ -112,25 +117,35 @@ public static class UsageAdaptiveCard
     {
         var five = state.Codex.WindowByDuration(CodexWindowDurations.FiveHourMinutes);
         var week = state.Codex.WindowByDuration(CodexWindowDurations.SevenDayMinutes);
-        var grok = state.Grok.Weekly ?? state.Grok.Windows.FirstOrDefault();
+        var grokBuild = state.Grok.Windows.FirstOrDefault(w =>
+                            string.Equals(w.Label, "Build", StringComparison.OrdinalIgnoreCase) ||
+                            string.Equals(w.Label, "Weekly", StringComparison.OrdinalIgnoreCase))
+                        ?? state.Grok.Weekly
+                        ?? state.Grok.Windows.FirstOrDefault();
+        var grokBot = state.Grok.Windows.FirstOrDefault(w =>
+            string.Equals(w.Label, "Bot", StringComparison.OrdinalIgnoreCase));
         var agy = state.Agy.Windows.OrderBy(w => w.RemainingPercent).FirstOrDefault();
         var agyPools = state.Agy.Windows.Count == 0
             ? "unavailable"
             : string.Join(" · ", state.Agy.Windows.Select(w =>
-                $"{w.Label} {PercentageMath.DisplayPercent(w.RemainingPercent)}%"));
+                $"{UsageLabel.Display(w.Label)} {PercentageMath.DisplayPercent(w.RemainingPercent)}%"));
         var data = new JsonObject
         {
             ["codexPlan"] = state.Codex.PlanLabel ?? "Codex",
             ["codexFiveRemaining"] = Display(five),
-            ["codexFiveCountdown"] = ResetCountdown.Format(ResetCountdown.Remaining(five?.ResetsAtUtc, nowUtc)),
+            ["codexFiveCountdown"] = ResetCountdown.Caption(five?.ResetsAtUtc, nowUtc),
             ["codexWeekRemaining"] = Display(week),
-            ["codexWeekCountdown"] = ResetCountdown.Format(ResetCountdown.Remaining(week?.ResetsAtUtc, nowUtc)),
+            ["codexWeekCountdown"] = ResetCountdown.Caption(week?.ResetsAtUtc, nowUtc),
             ["grokPlan"] = state.Grok.PlanLabel ?? "Grok",
-            ["grokRemaining"] = Display(grok),
-            ["grokCountdown"] = ResetCountdown.Format(ResetCountdown.Remaining(grok?.ResetsAtUtc, nowUtc)),
+            ["grokRemaining"] = Display(grokBuild),
+            ["grokCountdown"] = ResetCountdown.Caption(grokBuild?.ResetsAtUtc, nowUtc),
+            ["grokBuildRemaining"] = Display(grokBuild),
+            ["grokBuildCountdown"] = ResetCountdown.Caption(grokBuild?.ResetsAtUtc, nowUtc),
+            ["grokBotRemaining"] = Display(grokBot),
+            ["grokBotCountdown"] = ResetCountdown.Caption(grokBot?.ResetsAtUtc, nowUtc),
             ["agyPlan"] = state.Agy.PlanLabel ?? "Antigravity",
             ["agyRemaining"] = Display(agy),
-            ["agyCountdown"] = ResetCountdown.Format(ResetCountdown.Remaining(agy?.ResetsAtUtc, nowUtc)),
+            ["agyCountdown"] = ResetCountdown.Caption(agy?.ResetsAtUtc, nowUtc),
             ["agyPools"] = agyPools,
             ["statusLine"] = $"Codex {Freshness(state.Codex)} {state.Codex.Status} · " +
                               $"Grok {Freshness(state.Grok)} {state.Grok.Status} · " +
