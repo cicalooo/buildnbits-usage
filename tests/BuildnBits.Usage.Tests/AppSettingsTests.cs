@@ -1,3 +1,4 @@
+using BuildnBits.Usage.Core.Models;
 using BuildnBits.Usage.Core.Storage;
 
 namespace BuildnBits.Usage.Tests;
@@ -36,4 +37,24 @@ public class AppSettingsTests
         Assert.False(loaded.LargerTrayDigits);
         Assert.DoesNotContain("token", File.ReadAllText(store.PathOnDisk), StringComparison.OrdinalIgnoreCase);
     }
+
+    [Fact]
+    public void Legacy_provider_flags_seed_period_visibility_on_save()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "bnb-settings-legacy-" + Guid.NewGuid());
+        var store = new AppSettingsStore(dir);
+        File.WriteAllText(
+            store.PathOnDisk,
+            """{"showCodexIcon":false,"showGrokIcon":true,"showAgyIcon":false}""");
+
+        var loaded = store.Load();
+        store.Save(loaded);
+        var json = File.ReadAllText(store.PathOnDisk);
+
+        Assert.False(loaded.IsTraySquareVisible(TraySquareKeys.CodexFiveHour, ProviderKind.Codex));
+        Assert.True(loaded.IsTraySquareVisible(TraySquareKeys.GrokWeekly, ProviderKind.Grok));
+        Assert.Contains("traySquareVisibility", json, StringComparison.Ordinal);
+        Assert.Contains("codex:300", json, StringComparison.Ordinal);
+    }
+
 }
