@@ -47,6 +47,16 @@ public class IconAndShellTests
         Assert.Equal(icon.Width, icon.Height);
     }
 
+    [Fact]
+    public void Notify_icon_host_uses_period_selection_without_adding_shell_slots()
+    {
+        var host = File.ReadAllText(FindSource("NotifyIconHost.cs"));
+
+        Assert.Contains("TraySquareCatalog.SelectedOptions", host, StringComparison.Ordinal);
+        Assert.Contains("TraySquareCatalog.SelectedWindows", host, StringComparison.Ordinal);
+        Assert.Equal(3, host.Split("private readonly NotifyIcon ", StringSplitOptions.None).Length - 1);
+    }
+
     private static string FindSource(string fileName)
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
