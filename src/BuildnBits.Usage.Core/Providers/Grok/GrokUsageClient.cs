@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using BuildnBits.Usage.Core;
 using BuildnBits.Usage.Core.JsonRpc;
 using BuildnBits.Usage.Core.Models;
 using BuildnBits.Usage.Core.Providers;
@@ -9,7 +10,7 @@ namespace BuildnBits.Usage.Core.Providers.Grok;
 
 public sealed class GrokUsageClient : IUsageProvider, IDisposable, IAsyncDisposable
 {
-    private const string ClientVersion = "1.2.1";
+    private static string ClientVersion => AppVersion.Current;
 
     private readonly Func<string, IReadOnlyList<string>, JsonRpcProcessClient> _factory;
     private readonly string _executableName;

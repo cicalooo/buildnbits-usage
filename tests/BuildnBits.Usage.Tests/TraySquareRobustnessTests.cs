@@ -34,4 +34,19 @@ public sealed class TraySquareRobustnessTests
         Assert.Equal("Usage", state.Agy.Windows.Single().Label);
         Assert.Contains(options, option => option.Provider == ProviderKind.Agy);
     }
+
+    [Fact]
+    public void Null_cached_window_elements_are_ignored()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "bnb-cache-null-window-" + Guid.NewGuid());
+        var cache = new UsageCache(dir);
+        File.WriteAllText(
+            cache.PathOnDisk,
+            """{"agy":{"status":"Ok","windows":[null]}}""");
+
+        var state = cache.Load();
+
+        Assert.Empty(state.Agy.Windows);
+    }
+
 }

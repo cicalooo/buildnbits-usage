@@ -126,13 +126,15 @@ public sealed class SettingsForm : Form
                 _trayChecks.Values.First().Checked = true;
             }
 
+            var currentVisibility = current.TraySquareVisibility ??
+                new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
             var next = new AppSettings
             {
                 ShowCodexIcon = current.ShowCodexIcon,
                 ShowGrokIcon = current.ShowGrokIcon,
                 ShowAgyIcon = current.ShowAgyIcon,
                 TraySquareVisibility = new Dictionary<string, bool>(
-                    current.TraySquareVisibility,
+                    currentVisibility,
                     StringComparer.OrdinalIgnoreCase),
                 LargerTrayDigits = _larger.Checked,
                 RefreshIntervalMinutes = _interval.SelectedIndex switch

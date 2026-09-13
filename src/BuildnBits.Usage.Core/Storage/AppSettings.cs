@@ -55,7 +55,19 @@ public sealed class AppSettings
     public void Normalize()
     {
         RefreshIntervalMinutes = RefreshIntervalMinutes;
-        TraySquareVisibility ??= new(StringComparer.OrdinalIgnoreCase);
+        var visibility = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+        if (TraySquareVisibility is not null)
+        {
+            foreach (var pair in TraySquareVisibility)
+            {
+                if (!string.IsNullOrWhiteSpace(pair.Key))
+                {
+                    visibility[pair.Key] = pair.Value;
+                }
+            }
+        }
+
+        TraySquareVisibility = visibility;
         var seedLegacyVisibility = TraySquareVisibility.Count == 0;
         if (seedLegacyVisibility)
         {
@@ -65,20 +77,24 @@ public sealed class AppSettings
             TraySquareVisibility[TraySquareKeys.AgyWeekly] = ShowAgyIcon;
         }
 
-        if (!ShowCodexIcon && !ShowGrokIcon && !ShowAgyIcon)
+        if (seedLegacyVisibility && !ShowCodexIcon && !ShowGrokIcon && !ShowAgyIcon)
         {
             ShowCodexIcon = true;
-            if (seedLegacyVisibility)
-            {
-                TraySquareVisibility[TraySquareKeys.CodexFiveHour] = true;
-            }
+            TraySquareVisibility[TraySquareKeys.CodexFiveHour] = true;
         }
 
-        if (TraySquareVisibility.Count > 0 && !TraySquareVisibility.Values.Any(visible => visible))
+        if (!HasKnownVisibleTraySquare())
         {
             TraySquareVisibility[TraySquareKeys.CodexFiveHour] = true;
         }
     }
+
+    private bool HasKnownVisibleTraySquare() =>
+        TraySquareVisibility.Values.Any(static visible => visible) ||
+        IsTraySquareVisible(TraySquareKeys.CodexFiveHour, ProviderKind.Codex) ||
+        IsTraySquareVisible(TraySquareKeys.CodexSevenDay, ProviderKind.Codex) ||
+        IsTraySquareVisible(TraySquareKeys.GrokWeekly, ProviderKind.Grok) ||
+        IsTraySquareVisible(TraySquareKeys.AgyWeekly, ProviderKind.Agy);
 }
 
 public sealed class AppSettingsStore

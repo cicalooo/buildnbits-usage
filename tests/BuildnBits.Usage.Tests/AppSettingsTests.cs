@@ -57,4 +57,57 @@ public class AppSettingsTests
         Assert.Contains("codex:300", json, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void Partial_visibility_map_does_not_fall_back_to_mutated_codex_flag()
+    {
+        var settings = new AppSettings
+        {
+            ShowCodexIcon = false,
+            ShowGrokIcon = false,
+            ShowAgyIcon = false
+        };
+        settings.SetTraySquareVisible(TraySquareKeys.GrokWeekly, true);
+
+        settings.Normalize();
+
+        Assert.False(settings.IsTraySquareVisible(TraySquareKeys.CodexFiveHour, ProviderKind.Codex));
+        Assert.True(settings.IsTraySquareVisible(TraySquareKeys.GrokWeekly, ProviderKind.Grok));
+        Assert.False(settings.IsTraySquareVisible(TraySquareKeys.AgyWeekly, ProviderKind.Agy));
+    }
+
+    [Fact]
+    public void Explicit_false_period_override_survives_when_legacy_provider_is_on()
+    {
+        var settings = new AppSettings
+        {
+            ShowCodexIcon = true,
+            ShowGrokIcon = false,
+            ShowAgyIcon = false
+        };
+        settings.SetTraySquareVisible(TraySquareKeys.CodexFiveHour, false);
+
+        settings.Normalize();
+
+        Assert.False(settings.IsTraySquareVisible(TraySquareKeys.CodexFiveHour, ProviderKind.Codex));
+        Assert.True(settings.IsTraySquareVisible(TraySquareKeys.CodexSevenDay, ProviderKind.Codex));
+    }
+
+    [Fact]
+    public void Extensible_true_period_keeps_explicit_false_known_period()
+    {
+        var settings = new AppSettings
+        {
+            ShowCodexIcon = false,
+            ShowGrokIcon = false,
+            ShowAgyIcon = false
+        };
+        settings.SetTraySquareVisible(TraySquareKeys.CodexFiveHour, false);
+        settings.SetTraySquareVisible("codex:duration:15", true);
+
+        settings.Normalize();
+
+        Assert.False(settings.IsTraySquareVisible(TraySquareKeys.CodexFiveHour, ProviderKind.Codex));
+        Assert.True(settings.TraySquareVisibility["codex:duration:15"]);
+    }
+
 }

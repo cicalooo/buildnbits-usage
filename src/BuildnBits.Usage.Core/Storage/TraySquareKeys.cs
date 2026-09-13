@@ -11,7 +11,7 @@ public static class TraySquareKeys
 
     public static string For(ProviderKind provider, UsageWindow window)
     {
-        if (provider == ProviderKind.Grok && IsWeekly(window))
+        if (provider == ProviderKind.Grok && (IsWeekly(window) || window.DurationMinutes is null))
         {
             return GrokWeekly;
         }

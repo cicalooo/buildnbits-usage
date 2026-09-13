@@ -28,8 +28,8 @@ public class IconAndShellTests
     [Fact]
     public void Notify_icon_host_uses_supported_shell_surface()
     {
-        var host = File.ReadAllText(FindSource("NotifyIconHost.cs"));
-        var watcher = File.ReadAllText(FindSource("TaskbarCreatedWindow.cs"));
+        var host = File.ReadAllText(FindSource("BuildnBits.Usage.Tray", "Icons", "NotifyIconHost.cs"));
+        var watcher = File.ReadAllText(FindSource("BuildnBits.Usage.Tray", "Icons", "TaskbarCreatedWindow.cs"));
         Assert.Contains("Shell_NotifyIcon", host);
         Assert.DoesNotContain("SetParent", host);
         Assert.Contains("TaskbarCreated", watcher);
@@ -50,19 +50,29 @@ public class IconAndShellTests
     [Fact]
     public void Notify_icon_host_uses_period_selection_without_adding_shell_slots()
     {
-        var host = File.ReadAllText(FindSource("NotifyIconHost.cs"));
+        var host = File.ReadAllText(FindSource("BuildnBits.Usage.Tray", "Icons", "NotifyIconHost.cs"));
 
         Assert.Contains("TraySquareCatalog.SelectedOptions", host, StringComparison.Ordinal);
         Assert.Contains("TraySquareCatalog.SelectedWindows", host, StringComparison.Ordinal);
         Assert.Equal(3, host.Split("private readonly NotifyIcon ", StringSplitOptions.None).Length - 1);
     }
 
-    private static string FindSource(string fileName)
+    [Fact]
+    public void Grok_popup_renders_every_usage_window()
+    {
+        var popup = File.ReadAllText(FindSource("BuildnBits.Usage.Tray", "Ui", "UsagePopupForm.cs"));
+
+        Assert.Contains("foreach (var window in OrderedWindows(snapshot.Windows)", popup, StringComparison.Ordinal);
+        Assert.DoesNotContain("snapshot.Weekly ?? snapshot.Windows.FirstOrDefault()", popup, StringComparison.Ordinal);
+        Assert.Equal(3, popup.Split("OrderedWindows(snapshot.Windows)", StringSplitOptions.None).Length - 1);
+    }
+
+    private static string FindSource(string project, params string[] parts)
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
         while (dir is not null)
         {
-            var candidate = Path.Combine(dir.FullName, "src", "BuildnBits.Usage.Tray", "Icons", fileName);
+            var candidate = Path.Combine([dir.FullName, "src", project, .. parts]);
             if (File.Exists(candidate))
             {
                 return candidate;
@@ -71,6 +81,6 @@ public class IconAndShellTests
             dir = dir.Parent;
         }
 
-        throw new FileNotFoundException(fileName);
+        throw new FileNotFoundException(Path.Combine([project, .. parts]));
     }
 }

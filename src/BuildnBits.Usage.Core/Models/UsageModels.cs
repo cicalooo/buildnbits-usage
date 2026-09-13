@@ -43,6 +43,7 @@ public sealed record ProviderSnapshot(
     public UsageWindow? Weekly =>
         Windows.FirstOrDefault(w =>
             string.Equals(w.Label, "Weekly", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(w.Label, "Build", StringComparison.OrdinalIgnoreCase) ||
             w.DurationMinutes is 10080);
 }
 

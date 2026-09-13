@@ -200,13 +200,15 @@ public sealed class UsagePopupForm : Form
         var section = new ProviderSection("Codex", snapshot, UsageIconRenderer.CodexColor);
         if (HasUsageRows(snapshot))
         {
-            section.AddRow("5-hour", snapshot.WindowByDuration(CodexWindowDurations.FiveHourMinutes));
-            section.AddRow("7-day", snapshot.WindowByDuration(CodexWindowDurations.SevenDayMinutes));
-            foreach (var window in snapshot.Windows.Where(window =>
-                         window.DurationMinutes is not CodexWindowDurations.FiveHourMinutes and
-                         not CodexWindowDurations.SevenDayMinutes))
+            foreach (var window in OrderedWindows(snapshot.Windows))
             {
-                section.AddRow(window.Label, window);
+                var displayLabel = window.DurationMinutes switch
+                {
+                    CodexWindowDurations.FiveHourMinutes => "5-hour",
+                    CodexWindowDurations.SevenDayMinutes => "7-day",
+                    _ => DisplayLabel(window)
+                };
+                section.AddRow(displayLabel, window with { Label = displayLabel });
             }
         }
 
@@ -219,7 +221,13 @@ public sealed class UsagePopupForm : Form
         var section = new ProviderSection("Grok", snapshot, UsageIconRenderer.GrokColor);
         if (HasUsageRows(snapshot))
         {
-            section.AddRow("Weekly", snapshot.Weekly ?? snapshot.Windows.FirstOrDefault());
+            foreach (var window in OrderedWindows(snapshot.Windows))
+            {
+                var displayLabel = string.Equals(window.Label, "Weekly", StringComparison.OrdinalIgnoreCase)
+                    ? "Build"
+                    : string.IsNullOrWhiteSpace(window.Label) ? "Usage" : window.Label;
+                section.AddRow(displayLabel, window with { Label = displayLabel });
+            }
         }
 
         section.Finish();
@@ -231,15 +239,24 @@ public sealed class UsagePopupForm : Form
         var section = new ProviderSection("Antigravity", snapshot, UsageIconRenderer.AgyColor);
         if (HasUsageRows(snapshot))
         {
-            foreach (var window in snapshot.Windows)
+            foreach (var window in OrderedWindows(snapshot.Windows))
             {
-                section.AddRow(window.Label, window);
+                var displayLabel = DisplayLabel(window);
+                section.AddRow(displayLabel, window with { Label = displayLabel });
             }
         }
 
         section.Finish();
         return section;
     }
+
+    private static IEnumerable<UsageWindow> OrderedWindows(IReadOnlyList<UsageWindow> windows) =>
+        windows
+            .OrderBy(window => window.ResetsAtUtc is null)
+            .ThenBy(window => window.ResetsAtUtc);
+
+    private static string DisplayLabel(UsageWindow window) =>
+        string.IsNullOrWhiteSpace(window.Label) ? "Usage" : window.Label;
 
     private static bool HasUsageRows(ProviderSnapshot snapshot) =>
         snapshot.Windows.Count > 0 &&
