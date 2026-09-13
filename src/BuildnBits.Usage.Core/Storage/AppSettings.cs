@@ -32,7 +32,7 @@ public sealed class AppSettings
 
     public bool IsTraySquareVisible(string key, ProviderKind provider)
     {
-        if (TraySquareVisibility.TryGetValue(key, out var visible))
+        if (TraySquareVisibility is not null && TraySquareVisibility.TryGetValue(key, out var visible))
         {
             return visible;
         }
@@ -48,12 +48,14 @@ public sealed class AppSettings
 
     public void SetTraySquareVisible(string key, bool visible)
     {
+        TraySquareVisibility ??= new(StringComparer.OrdinalIgnoreCase);
         TraySquareVisibility[key] = visible;
     }
 
     public void Normalize()
     {
         RefreshIntervalMinutes = RefreshIntervalMinutes;
+        TraySquareVisibility ??= new(StringComparer.OrdinalIgnoreCase);
         var seedLegacyVisibility = TraySquareVisibility.Count == 0;
         if (seedLegacyVisibility)
         {

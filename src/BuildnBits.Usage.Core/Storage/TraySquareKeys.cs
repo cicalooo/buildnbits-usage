@@ -45,12 +45,12 @@ public static class TraySquareKeys
 
     public static bool IsWeekly(UsageWindow window) =>
         window.DurationMinutes == 10080 ||
-        window.Label.Contains("week", StringComparison.OrdinalIgnoreCase);
+        window.Label?.Contains("week", StringComparison.OrdinalIgnoreCase) == true;
 
-    private static string NormalizeLabel(string value)
+    private static string NormalizeLabel(string? value)
     {
         var result = new System.Text.StringBuilder();
-        foreach (var character in value.Trim().ToLowerInvariant())
+        foreach (var character in (value ?? string.Empty).Trim().ToLowerInvariant())
         {
             if (char.IsLetterOrDigit(character))
             {

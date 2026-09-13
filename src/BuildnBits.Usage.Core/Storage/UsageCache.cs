@@ -116,7 +116,10 @@ public sealed class UsageCache
         Enum.TryParse<UsageStatus>(entry.Status, out var status);
         var cachedWindows = entry.Windows ?? [];
         var windows = cachedWindows.Select(w =>
-            new UsageWindow(w.Label, w.DurationMinutes, w.UsedPercent, w.RemainingPercent, w.ResetsAtUtc)).ToList();
+        {
+            var label = string.IsNullOrWhiteSpace(w.Label) ? "Usage" : w.Label;
+            return new UsageWindow(label, w.DurationMinutes, w.UsedPercent, w.RemainingPercent, w.ResetsAtUtc);
+        }).ToList();
         var effective = status == UsageStatus.Ok ? UsageStatus.Stale : status;
         return new ProviderSnapshot(kind, effective, entry.PlanLabel, windows, entry.FetchedAtUtc, entry.StatusMessage);
     }

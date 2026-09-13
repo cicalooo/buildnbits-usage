@@ -124,9 +124,10 @@ public static class TraySquareCatalog
         foreach (var group in remaining.GroupBy(window => TraySquareKeys.For(provider, window)))
         {
             var windows = group.ToArray();
+            var label = string.IsNullOrWhiteSpace(windows[0].Label) ? "Usage" : windows[0].Label;
             var period = windows[0].DurationMinutes is { } duration
                 ? $"{duration}-minute"
-                : windows[0].Label;
+                : label;
             options.Add(new TraySquareOption(
                 group.Key,
                 provider,
