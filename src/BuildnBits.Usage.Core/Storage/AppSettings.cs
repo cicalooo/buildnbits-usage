@@ -1,4 +1,5 @@
 using System.Text.Json;
+using BuildnBits.Usage.Core.Models;
 
 namespace BuildnBits.Usage.Core.Storage;
 
@@ -11,6 +12,8 @@ public sealed class AppSettings
     public bool ShowCodexIcon { get; set; } = true;
     public bool ShowGrokIcon { get; set; } = true;
     public bool ShowAgyIcon { get; set; } = true;
+    public Dictionary<string, bool> TraySquareVisibility { get; set; } =
+        new(StringComparer.OrdinalIgnoreCase);
     public bool LargerTrayDigits { get; set; } = true;
 
     private int _refreshIntervalMinutes = DefaultRefreshIntervalMinutes;
@@ -27,12 +30,51 @@ public sealed class AppSettings
     public static int ClampRefreshInterval(int minutes) =>
         ClampRefreshIntervalMinutes(minutes);
 
+    public bool IsTraySquareVisible(string key, ProviderKind provider)
+    {
+        if (TraySquareVisibility.TryGetValue(key, out var visible))
+        {
+            return visible;
+        }
+
+        return provider switch
+        {
+            ProviderKind.Codex => ShowCodexIcon,
+            ProviderKind.Grok => ShowGrokIcon,
+            ProviderKind.Agy => ShowAgyIcon,
+            _ => true
+        };
+    }
+
+    public void SetTraySquareVisible(string key, bool visible)
+    {
+        TraySquareVisibility[key] = visible;
+    }
+
     public void Normalize()
     {
         RefreshIntervalMinutes = RefreshIntervalMinutes;
+        var seedLegacyVisibility = TraySquareVisibility.Count == 0;
+        if (seedLegacyVisibility)
+        {
+            TraySquareVisibility[TraySquareKeys.CodexFiveHour] = ShowCodexIcon;
+            TraySquareVisibility[TraySquareKeys.CodexSevenDay] = ShowCodexIcon;
+            TraySquareVisibility[TraySquareKeys.GrokWeekly] = ShowGrokIcon;
+            TraySquareVisibility[TraySquareKeys.AgyWeekly] = ShowAgyIcon;
+        }
+
         if (!ShowCodexIcon && !ShowGrokIcon && !ShowAgyIcon)
         {
             ShowCodexIcon = true;
+            if (seedLegacyVisibility)
+            {
+                TraySquareVisibility[TraySquareKeys.CodexFiveHour] = true;
+            }
+        }
+
+        if (TraySquareVisibility.Count > 0 && !TraySquareVisibility.Values.Any(visible => visible))
+        {
+            TraySquareVisibility[TraySquareKeys.CodexFiveHour] = true;
         }
     }
 }
