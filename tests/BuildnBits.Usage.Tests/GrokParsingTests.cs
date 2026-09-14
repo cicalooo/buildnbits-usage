@@ -34,6 +34,58 @@ public class GrokParsingTests
     }
 
     [Fact]
+    public void Treats_active_period_only_billing_as_zero_used()
+    {
+        const string json = """
+            {
+              "config": {
+                "currentPeriod": {
+                  "type": "USAGE_PERIOD_TYPE_WEEKLY",
+                  "start": "2026-06-01T00:00:00Z",
+                  "end": "2026-06-08T00:00:00Z"
+                },
+                "onDemandCap": { "val": 0 },
+                "onDemandUsed": { "val": 0 },
+                "prepaidBalance": { "val": 0 },
+                "isUnifiedBillingUser": true,
+                "billingPeriodStart": "2026-06-01T00:00:00Z",
+                "billingPeriodEnd": "2026-06-08T00:00:00Z"
+              },
+              "subscription_tier": "SuperGrok"
+            }
+            """;
+        using var doc = JsonDocument.Parse(json);
+
+        var snapshot = GrokBillingParser.Parse(doc.RootElement, Now);
+
+        var build = Assert.Single(snapshot.Windows);
+        Assert.Equal("Build", build.Label);
+        Assert.Equal(0, build.UsedPercent);
+        Assert.Equal(100, build.RemainingPercent);
+        Assert.Equal(10080, build.DurationMinutes);
+        Assert.Equal(new DateTimeOffset(2026, 6, 8, 0, 0, 0, TimeSpan.Zero), build.ResetsAtUtc);
+    }
+
+    [Fact]
+    public void Does_not_infer_zero_for_inactive_period_only_billing()
+    {
+        const string json = """
+            {
+              "config": {
+                "currentPeriod": {
+                  "type": "USAGE_PERIOD_TYPE_WEEKLY",
+                  "start": "2026-05-25T00:00:00Z",
+                  "end": "2026-06-01T00:00:00Z"
+                }
+              }
+            }
+            """;
+        using var doc = JsonDocument.Parse(json);
+
+        Assert.Throws<InvalidOperationException>(() => GrokBillingParser.Parse(doc.RootElement, Now));
+    }
+
+    [Fact]
     public void Parses_build_and_bot_from_product_usage()
     {
         const string json = """
@@ -212,4 +264,95 @@ public class GrokParsingTests
         Assert.Equal(75, build.RemainingPercent);
     }
 
+    [Fact]
+    public void Rejects_malformed_present_usage_even_with_active_period()
+    {
+        foreach (var usageFields in new[]
+                 {
+                     "\"creditUsagePercent\": \"invalid\"",
+                     "\"monthlyLimit\": { \"val\": \"invalid\" }, \"used\": { \"val\": 1 }",
+                     "\"monthlyLimit\": { \"val\": 2000 }, \"used\": { \"val\": \"invalid\" }"
+                 })
+        {
+            using var doc = JsonDocument.Parse(PeriodOnlyBilling(usageFields: usageFields));
+
+            Assert.Throws<InvalidOperationException>(() => GrokBillingParser.Parse(doc.RootElement, Now));
+        }
+    }
+
+    [Fact]
+    public void Rejects_untrusted_period_only_variants()
+    {
+        var payloads = new[]
+        {
+            PeriodOnlyBilling(includeMarkers: false),
+            PeriodOnlyBilling(type: "NOT_WEEKLY"),
+            PeriodOnlyBilling(start: "2026-06-03T00:00:00Z", end: "2026-06-10T00:00:00Z"),
+            PeriodOnlyBilling(billingEnd: "2026-06-09T00:00:00Z")
+        };
+
+        foreach (var payload in payloads)
+        {
+            using var doc = JsonDocument.Parse(payload);
+
+            Assert.Throws<InvalidOperationException>(() => GrokBillingParser.Parse(doc.RootElement, Now));
+        }
+    }
+
+    [Fact]
+    public void Rejects_malformed_unified_billing_markers()
+    {
+        var payloads = new[]
+        {
+            PeriodOnlyBilling().Replace(
+                "\"onDemandCap\": { \"val\": 0 }",
+                "\"onDemandCap\": { \"val\": \"invalid\" }",
+                StringComparison.Ordinal),
+            PeriodOnlyBilling().Replace(
+                "\"onDemandUsed\": { \"val\": 0 }",
+                "\"onDemandUsed\": { \"val\": \"1\" }",
+                StringComparison.Ordinal)
+        };
+
+        foreach (var payload in payloads)
+        {
+            using var doc = JsonDocument.Parse(payload);
+
+            Assert.Throws<InvalidOperationException>(() => GrokBillingParser.Parse(doc.RootElement, Now));
+        }
+    }
+
+    private static string PeriodOnlyBilling(
+        string type = "USAGE_PERIOD_TYPE_WEEKLY",
+        string start = "2026-06-01T00:00:00Z",
+        string end = "2026-06-08T00:00:00Z",
+        bool includeMarkers = true,
+        string? billingStart = null,
+        string? billingEnd = null,
+        string? usageFields = null)
+    {
+        var usage = usageFields is null ? string.Empty : $"                {usageFields},\n";
+        var markers = includeMarkers
+            ? """
+                "onDemandCap": { "val": 0 },
+                "onDemandUsed": { "val": 0 },
+                "prepaidBalance": { "val": 0 },
+                "isUnifiedBillingUser": true,
+            """
+            : string.Empty;
+
+        return $$"""
+            {
+              "config": {
+                "currentPeriod": {
+                  "type": "{{type}}",
+                  "start": "{{start}}",
+                  "end": "{{end}}"
+                },
+                {{usage}}{{markers}}                "billingPeriodStart": "{{billingStart ?? start}}",
+                "billingPeriodEnd": "{{billingEnd ?? end}}"
+              }
+            }
+            """;
+    }
 }

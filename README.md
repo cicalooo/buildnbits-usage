@@ -68,7 +68,7 @@ The app calls `x.ai/billing` (and `_x.ai/billing` when needed) using `cached_tok
 - **Chat is not a separate row.** Wire names like `PRODUCT_CHAT` / `CHAT` map to the same **Bot** label. Imagine, Voice, API, App Builder, and other unknown products are ignored.
 - Remaining for each matched product is `100 - usagePercent` (same convention as `creditUsagePercent`). Both rows share the weekly `currentPeriod.end` reset when present.
 - Matching is case-insensitive after stripping a `PRODUCT_` prefix. The first Build match and the first Bot match win. If both Chat and Bot strings appear, the first Bot-mapped entry is kept.
-- **If `productUsage` is missing or empty** (common on some SuperGrok CLI billing replies today), the aggregate `creditUsagePercent` is shown as a single **Build** row. The app does **not** invent a Bot row or a `0%` Bot value.
+- **If `productUsage` is missing or empty** (common on some SuperGrok CLI billing replies today), the aggregate `creditUsagePercent` is shown as a single **Build** row. At the start of an active, complete `currentPeriod`, Grok omits zero-valued usage fields; that exact period-only response is treated as **0% used / 100% remaining**. An incomplete or inactive period is still rejected rather than guessed. The app does **not** invent a Bot row or a `0%` Bot value.
 - **If Bot/Chat is absent from `productUsage` but Build is present**, only Build is shown.
 - The Grok tray catalog exposes one **Build** square only. Bot/Chat product data remains available to popup/Adaptive Card rendering when returned, but it is not assigned a separate Grok tray square.
 

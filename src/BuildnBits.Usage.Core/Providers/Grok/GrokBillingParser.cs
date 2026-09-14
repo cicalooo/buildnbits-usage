@@ -26,7 +26,7 @@ public static class GrokBillingParser
         IReadOnlyList<UsageWindow> windows = productWindows ?? [];
         if (productWindows is null)
         {
-            var usedRaw = ReadUsedPercent(root);
+            var usedRaw = ReadUsedPercent(root, nowUtc);
             var used = PercentageMath.ClampPercent(usedRaw);
             var remaining = PercentageMath.RemainingFromUsed(usedRaw);
             windows = [new UsageWindow(BuildLabel, durationMinutes, used, remaining, resets)];
@@ -108,8 +108,7 @@ public static class GrokBillingParser
     {
         if (root.TryGetProperty("currentPeriod", out var period) && period.ValueKind == JsonValueKind.Object)
         {
-            if (ReadString(period, "type") is { } type &&
-                type.Contains("WEEK", StringComparison.OrdinalIgnoreCase))
+            if (ReadString(period, "type") is { } type && IsWeeklyPeriodType(type))
             {
                 return 10080;
             }
@@ -126,21 +125,83 @@ public static class GrokBillingParser
         return null;
     }
 
-    private static double ReadUsedPercent(JsonElement root)
+    private static bool IsWeeklyPeriodType(string type) =>
+        string.Equals(type, "USAGE_PERIOD_TYPE_WEEKLY", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(type, "WEEKLY", StringComparison.OrdinalIgnoreCase);
+
+    private static double ReadUsedPercent(JsonElement root, DateTimeOffset nowUtc)
     {
-        if (TryGetDouble(root, "creditUsagePercent", out var percent))
+        if (root.TryGetProperty("creditUsagePercent", out _))
         {
-            return percent;
+            if (TryGetDouble(root, "creditUsagePercent", out var percent))
+            {
+                return percent;
+            }
+
+            throw new InvalidOperationException("Grok billing payload has invalid usage percent.");
         }
 
-        if (TryGetCent(root, "monthlyLimit", out var limit) &&
-            TryGetCent(root, "used", out var used) &&
-            limit > 0)
+        var hasLimit = root.TryGetProperty("monthlyLimit", out _);
+        var hasUsed = root.TryGetProperty("used", out _);
+        if (hasLimit || hasUsed)
         {
-            return used * 100.0 / limit;
+            if (TryGetCent(root, "monthlyLimit", out var limit) &&
+                TryGetCent(root, "used", out var used) &&
+                limit > 0)
+            {
+                return used * 100.0 / limit;
+            }
+
+            throw new InvalidOperationException("Grok billing payload has invalid legacy usage counters.");
+        }
+
+        // Proto JSON omits zero-valued usage fields at the start of an active
+        // period. Require the exact unified-billing shape before treating that
+        // omission as zero; an arbitrary missing field remains an error.
+        if (HasActiveCurrentPeriod(root, nowUtc))
+        {
+            return 0;
         }
 
         throw new InvalidOperationException("Grok billing payload is missing usage percent.");
+    }
+
+    private static bool HasActiveCurrentPeriod(JsonElement root, DateTimeOffset nowUtc)
+    {
+        if (ReadDurationMinutes(root) is null ||
+            !root.TryGetProperty("currentPeriod", out var period) ||
+            period.ValueKind != JsonValueKind.Object ||
+            !root.TryGetProperty("isUnifiedBillingUser", out var unified) ||
+            unified.ValueKind != JsonValueKind.True ||
+            !TryGetCent(root, "onDemandCap", out var onDemandCap) ||
+            onDemandCap != 0 ||
+            !TryGetCent(root, "onDemandUsed", out var onDemandUsed) ||
+            onDemandUsed != 0)
+        {
+            return false;
+        }
+
+        if (!TryReadUtc(ReadString(period, "start"), out var startUtc) ||
+            !TryReadUtc(ReadString(period, "end"), out var endUtc) ||
+            !TryReadUtc(ReadString(root, "billingPeriodStart"), out var billingStartUtc) ||
+            !TryReadUtc(ReadString(root, "billingPeriodEnd"), out var billingEndUtc))
+        {
+            return false;
+        }
+
+        return startUtc == billingStartUtc &&
+               endUtc == billingEndUtc &&
+               startUtc <= nowUtc &&
+               nowUtc < endUtc;
+    }
+
+    private static bool TryReadUtc(string? value, out DateTimeOffset parsed)
+    {
+        return DateTimeOffset.TryParse(
+            value,
+            CultureInfo.InvariantCulture,
+            DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
+            out parsed);
     }
 
     private static DateTimeOffset? ReadReset(JsonElement root)
@@ -192,8 +253,11 @@ public static class GrokBillingParser
                 return val.TryGetInt64(out value);
             }
 
-            value = 0;
-            return true;
+            if (val.ValueKind == JsonValueKind.String &&
+                long.TryParse(val.GetString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out value))
+            {
+                return true;
+            }
         }
 
         return false;

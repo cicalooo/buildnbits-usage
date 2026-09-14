@@ -2,7 +2,7 @@
 
 - Grok popup and Adaptive Card can show **Build** and **Bot** remaining usage from `config.productUsage`.
 - **Chat** wire products (`PRODUCT_CHAT` / `CHAT` / product `4`) display as **Bot**, not a third popup row.
-- When billing omits `productUsage`, the aggregate weekly pool is labeled **Build** only — Bot is not invented.
+- When billing omits `productUsage`, the aggregate weekly pool is labeled **Build** only — Bot is not invented. A complete active weekly period with omitted zero-valued usage is parsed as **0% used / 100% remaining**; incomplete or inactive period metadata remains unavailable.
 - Compact one-line reset captions (`4h 12m · Fri 16:01`) and short labels (`5h`, `7d`, `Gemini 5h`) across providers.
 - Rows within each provider are ordered by soonest reset.
 - Settings independently control Codex 5-hour, Codex 7-day, Grok Build, and Antigravity usage options.
