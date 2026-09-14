@@ -29,7 +29,10 @@ public sealed class TraySquareSettingsTests
             option.Key == TraySquareKeys.CodexFiveHour && option.DisplayLabel == "Codex 5-hour");
         Assert.Contains(options, option =>
             option.Key == TraySquareKeys.CodexSevenDay && option.DisplayLabel == "Codex 7-day");
-        Assert.Equal(2, options.Single(option => option.Key == TraySquareKeys.GrokWeekly).Windows.Count);
+        var grok = Assert.Single(options, option => option.Provider == ProviderKind.Grok);
+        var grokBuild = Assert.Single(grok.Windows);
+        Assert.Equal(TraySquareKeys.GrokWeekly, grok.Key);
+        Assert.Equal("Build", grokBuild.Label);
         Assert.Equal(2, options.Single(option => option.Key == TraySquareKeys.AgyWeekly).Windows.Count);
     }
 

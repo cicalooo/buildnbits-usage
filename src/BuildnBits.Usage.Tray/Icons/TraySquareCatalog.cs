@@ -77,17 +77,19 @@ public static class TraySquareCatalog
 
     private static IReadOnlyList<TraySquareOption> BuildGrok(ProviderSnapshot snapshot)
     {
-        var remaining = snapshot.Windows.ToList();
-        var options = new List<TraySquareOption>();
-        AddKnown(
-            options,
-            remaining,
-            ProviderKind.Grok,
-            TraySquareKeys.GrokWeekly,
-            "Grok weekly",
-            window => TraySquareKeys.IsWeekly(window) || window.DurationMinutes is null);
-        AddUnknown(options, remaining, ProviderKind.Grok);
-        return options;
+        var buildWindows = snapshot.Windows
+            .Where(window =>
+                string.Equals(window.Label, "Build", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(window.Label, "Weekly", StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+        return
+        [
+            new TraySquareOption(
+                TraySquareKeys.GrokWeekly,
+                ProviderKind.Grok,
+                "Grok Build",
+                buildWindows)
+        ];
     }
 
     private static IReadOnlyList<TraySquareOption> BuildAgy(ProviderSnapshot snapshot)

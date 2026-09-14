@@ -14,7 +14,7 @@
 
 - Shows Codex 5h/7d windows, Grok Build remaining usage (and Bot when billing sends it), and Google Antigravity model quotas.
 - Uses compact reset captions (`4h 12m · Fri 16:01`) and short labels (`5h`, `7d`, `Gemini 5h`).
-- Keeps three compact tray icons visible for the Codex, Grok, and Antigravity percentages.
+- Creates one compact tray icon for each selected usage option: Codex 5h/7d can appear separately, Grok exposes only Build, and Antigravity options can appear separately.
 - Opens a compact, scrollable status popup with every Antigravity quota pool, remaining time, reset times, refresh controls, settings, and diagnostics.
 - Refreshes on startup, manual refresh, resume from sleep, network recovery, and roughly every 5 minutes by default. Provider results appear progressively, so a slow CLI does not hold back the others.
 - Supports 3-minute, 5-minute, and 10-minute update intervals from Settings or the tray menu.
@@ -22,7 +22,7 @@
 
 ## Screenshots
 
-The checked-in screenshots show the three-provider tray experience; current builds use the compact, scrollable provider-row popup described below.
+The checked-in screenshots show the earlier three-provider tray experience; current builds can show one selected usage option per tray icon.
 
 ### Usage tracker popup
 
@@ -32,13 +32,13 @@ The popup shows all tracked subscription windows, their remaining percentages, r
 
 ### Notification-area icons
 
-Three small notification-area icons keep the current Codex, Grok, and Antigravity remaining percentages visible without opening the popup. The Antigravity icon shows the lowest remaining quota pool.
+Each selected usage option gets its own small notification-area icon. Codex 5-hour and 7-day choices can therefore appear as separate squares; Grok exposes only its Build square; and Antigravity can show separate selected pools.
 
 ![Codex, Grok, and Antigravity percentage icons in the Windows notification area](docs/images/usage-tracker-tray-icons.png)
 
 ## How it works
 
-Windows does not provide a supported API for arbitrary inline taskbar widgets. BuildnBits.Usage uses three supported `NotifyIcon` / `Shell_NotifyIcon` icons instead. A Widgets Board card remains in the source as a future plan and is disabled in Settings.
+Windows does not provide a supported API for arbitrary inline taskbar widgets. BuildnBits.Usage uses supported `NotifyIcon` / `Shell_NotifyIcon` instances, one for each selected usage option. The Grok tray catalog exposes Build only; Bot/Chat data is not assigned a separate Grok square. A Widgets Board card remains in the source as a future plan and is disabled in Settings.
 
 Replacement taskbars such as StartAllBack or ExplorerPatcher may work when they preserve `Shell_NotifyIcon`; compatibility is not guaranteed.
 
@@ -52,7 +52,7 @@ Replacement taskbars such as StartAllBack or ExplorerPatcher may work when they 
 
 ### Codex
 
-BuildnBits.Usage calls `initialize`, `account/read`, and `account/rateLimits/read`. It recognizes usage windows by duration, including **300 minutes (5-hour)** and **10,080 minutes (7-day)**. Remaining usage is calculated as `100 - usedPercent`, and the Codex tray icon shows the lowest remaining percentage across active windows.
+BuildnBits.Usage calls `initialize`, `account/read`, and `account/rateLimits/read`. It recognizes usage windows by duration, including **300 minutes (5-hour)** and **10,080 minutes (7-day)**. Remaining usage is calculated as `100 - usedPercent`, and each selected Codex tray icon shows the remaining percentage for its own period.
 
 ### Grok
 
@@ -70,11 +70,11 @@ The app calls `x.ai/billing` (and `_x.ai/billing` when needed) using `cached_tok
 - Matching is case-insensitive after stripping a `PRODUCT_` prefix. The first Build match and the first Bot match win. If both Chat and Bot strings appear, the first Bot-mapped entry is kept.
 - **If `productUsage` is missing or empty** (common on some SuperGrok CLI billing replies today), the aggregate `creditUsagePercent` is shown as a single **Build** row. The app does **not** invent a Bot row or a `0%` Bot value.
 - **If Bot/Chat is absent from `productUsage` but Build is present**, only Build is shown.
-- The Grok tray icon is the lowest remaining percent among the Grok rows that exist (Build and/or Bot).
+- The Grok tray catalog exposes one **Build** square only. Bot/Chat product data remains available to popup/Adaptive Card rendering when returned, but it is not assigned a separate Grok tray square.
 
 ### Google Antigravity [agy]
 
-The app runs Antigravity's read-only `/usage` command in headless mode and parses its machine-readable `command.data.groups[].buckets[]` response. It records each quota pool separately and shows the lowest remaining pool in the tray icon. The `/usage` command does not start an agent turn or spend model quota. Antigravity authentication remains in the CLI's secure Windows credential store; this app never reads or stores it.
+The app runs Antigravity's read-only `/usage` command in headless mode and parses its machine-readable `command.data.groups[].buckets[]` response. It records each quota pool separately, and each selected Antigravity option gets its own tray square. The `/usage` command does not start an agent turn or spend model quota. Antigravity authentication remains in the CLI's secure Windows credential store; this app never reads or stores it.
 
 ## Privacy and cache
 
@@ -163,13 +163,13 @@ Requires the Windows SDK `makeappx` tool:
 pwsh -File src/BuildnBits.Usage.Package/pack.ps1
 ```
 
-Explorer restarts re-register the three `NotifyIcon` instances through the documented `TaskbarCreated` broadcast. Icons are not reparented into Explorer.
+Explorer restarts re-register the currently selected `NotifyIcon` instances through the documented `TaskbarCreated` broadcast. Icons are not reparented into Explorer.
 
 For development signing, see [the signing guide](src/BuildnBits.Usage.Package/signing/README.md). Private certificates are not committed (`*.pfx` is ignored); the development publisher subject is `CN=BuildnBits-Dev`.
 
 ## Settings and future work
 
-Settings—available from either tray icon—cover launch at login, independent inclusion of Codex 5-hour and 7-day periods, Grok weekly usage, Antigravity weekly usage, larger tray digits, the 3/5/10-minute refresh interval, and the cache folder. The app keeps one square per provider; a provider square uses the lowest remaining value among its selected periods, while the popup still shows every usage row. Tokens and cookies are never stored in Settings or the application log.
+Settings—available from any tray icon—cover launch at login, independent inclusion of Codex 5-hour and 7-day periods, Grok Build usage, Antigravity options, larger tray digits, the 3/5/10-minute refresh interval, and the cache folder. Each selected settings option gets its own square; the Grok tray catalog exposes Build only, while the popup still shows every usage row. Tokens and cookies are never stored in Settings or the application log.
 
 Widgets Board integration is currently disabled and tracked in [FUTURE.md](FUTURE.md). The MSIX packaging project remains in the repository for that future work.
 

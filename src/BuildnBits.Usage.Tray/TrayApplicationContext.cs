@@ -19,6 +19,7 @@ public sealed class TrayApplicationContext : ApplicationContext
     private readonly UsageRefreshService _refresh;
     private readonly NotifyIconHost _icons = new();
     private readonly UsagePopupForm _popup = new();
+    private readonly SynchronizationContext? _ui;
     private AppSettings _settings;
     private bool _launchAtLogin;
     private int _exiting;
@@ -46,6 +47,7 @@ public sealed class TrayApplicationContext : ApplicationContext
         {
             _launchAtLogin = enabled;
             LaunchAtLogin.SetEnabled(enabled);
+            ApplyIconsOnUi();
         };
 
         _popup.RefreshClicked += (_, _) => RequestRefresh();
@@ -56,9 +58,11 @@ public sealed class TrayApplicationContext : ApplicationContext
         {
             _launchAtLogin = enabled;
             LaunchAtLogin.SetEnabled(enabled);
+            ApplyIconsOnUi();
         };
 
         var ui = SynchronizationContext.Current;
+        _ui = ui;
         _refresh.StateChanged += (_, state) =>
         {
             void Apply()
@@ -178,6 +182,54 @@ public sealed class TrayApplicationContext : ApplicationContext
 
     private void OnUserPreferenceChanged(object sender, UserPreferenceChangedEventArgs e)
     {
+        PostToUi(ApplyIconsOnUi);
+    }
+
+    private void PostToUi(Action action)
+    {
+        if (Volatile.Read(ref _exiting) != 0)
+        {
+            return;
+        }
+
+        if (_ui is not null)
+        {
+            _ui.Post(_ =>
+            {
+                if (Volatile.Read(ref _exiting) == 0)
+                {
+                    action();
+                }
+            }, null);
+            return;
+        }
+
+        if (_popup.IsHandleCreated && !_popup.IsDisposed)
+        {
+            try
+            {
+                _popup.BeginInvoke(() =>
+                {
+                    if (Volatile.Read(ref _exiting) == 0)
+                    {
+                        action();
+                    }
+                });
+            }
+            catch (InvalidOperationException)
+            {
+                // The popup is closing while a preference update is queued.
+            }
+        }
+    }
+
+    private void ApplyIconsOnUi()
+    {
+        if (Volatile.Read(ref _exiting) != 0 || _popup.IsDisposed)
+        {
+            return;
+        }
+
         _icons.Apply(_refresh.Current, _launchAtLogin, _settings);
     }
 

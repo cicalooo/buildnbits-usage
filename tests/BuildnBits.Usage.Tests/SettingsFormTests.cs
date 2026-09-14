@@ -60,7 +60,7 @@ public sealed class SettingsFormTests
 
         Assert.Contains("Show Codex 5-hour square in tray", labels);
         Assert.Contains("Show Codex 7-day square in tray", labels);
-        Assert.Contains("Show Grok weekly square in tray", labels);
+        Assert.Contains("Show Grok Build square in tray", labels);
         Assert.Contains("Show Antigravity weekly square in tray", labels);
     }
 
