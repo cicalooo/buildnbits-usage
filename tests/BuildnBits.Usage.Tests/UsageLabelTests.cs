@@ -11,8 +11,10 @@ public class UsageLabelTests
     [InlineData("Build", "Build")]
     [InlineData("Bot", "Bot")]
     [InlineData("Gemini Models · Weekly Limit Remaining", "Gemini 7d")]
+    [InlineData("Gemini Models · 7-day Limit Remaining", "Gemini 7d")]
     [InlineData("Gemini Models · Five Hour Limit Remaining", "Gemini 5h")]
     [InlineData("Claude and GPT models · Weekly Limit Remaining", "Claude 7d")]
+    [InlineData("Claude and GPT models · 7-day Limit Remaining", "Claude 7d")]
     [InlineData("Claude and GPT models · Five Hour Limit Remaining", "Claude 5h")]
     public void Condenses_labels(string raw, string expected) =>
         Assert.Equal(expected, UsageLabel.Display(raw));

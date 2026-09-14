@@ -210,23 +210,7 @@ public sealed class UsagePopupForm : Form
         var section = new ProviderSection("Codex", snapshot, UsageIconRenderer.CodexColor);
         if (HasUsageRows(snapshot))
         {
-            var windows = new List<UsageWindow>();
-            var five = snapshot.WindowByDuration(CodexWindowDurations.FiveHourMinutes);
-            var week = snapshot.WindowByDuration(CodexWindowDurations.SevenDayMinutes);
-            if (five is not null)
-            {
-                windows.Add(five);
-            }
-
-            if (week is not null)
-            {
-                windows.Add(week);
-            }
-
-            windows.AddRange(snapshot.Windows.Where(window =>
-                window.DurationMinutes is not CodexWindowDurations.FiveHourMinutes and
-                not CodexWindowDurations.SevenDayMinutes));
-            AddOrderedRows(section, windows);
+            AddOrderedRows(section, snapshot.Windows);
         }
 
         section.Finish();
@@ -238,17 +222,7 @@ public sealed class UsagePopupForm : Form
         var section = new ProviderSection("Grok", snapshot, UsageIconRenderer.GrokColor);
         if (HasUsageRows(snapshot))
         {
-            var grokWindows = snapshot.Windows
-                .Where(window =>
-                    string.Equals(window.Label, "Build", StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals(window.Label, "Bot", StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals(window.Label, "Weekly", StringComparison.OrdinalIgnoreCase))
-                .ToList();
-            if (grokWindows.Count == 0)
-            {
-                grokWindows.AddRange(snapshot.Windows.Take(1));
-            }
-
+            var grokWindows = snapshot.Windows.ToList();
             AddOrderedRows(section, grokWindows);
         }
 

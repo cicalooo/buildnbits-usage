@@ -40,6 +40,7 @@ public static class UsageLabel
         s = Regex.Replace(s, @"Claude and GPT", "Claude", RegexOptions.IgnoreCase);
         s = Regex.Replace(s, @"Five Hour|\b5-hour\b", "5h", RegexOptions.IgnoreCase);
         s = Regex.Replace(s, @"\bWeekly\b", "7d", RegexOptions.IgnoreCase);
+        s = Regex.Replace(s, @"\b7-day\b", "7d", RegexOptions.IgnoreCase);
         s = Regex.Replace(s, @"\s*·\s*", " ");
         s = Regex.Replace(s, @"\s+", " ").Trim();
         return s;

@@ -119,9 +119,7 @@ public static class UsageAdaptiveCard
         var week = state.Codex.WindowByDuration(CodexWindowDurations.SevenDayMinutes);
         var grokBuild = state.Grok.Windows.FirstOrDefault(w =>
                             string.Equals(w.Label, "Build", StringComparison.OrdinalIgnoreCase) ||
-                            string.Equals(w.Label, "Weekly", StringComparison.OrdinalIgnoreCase))
-                        ?? state.Grok.Weekly
-                        ?? state.Grok.Windows.FirstOrDefault();
+                            string.Equals(w.Label, "Weekly", StringComparison.OrdinalIgnoreCase));
         var grokBot = state.Grok.Windows.FirstOrDefault(w =>
             string.Equals(w.Label, "Bot", StringComparison.OrdinalIgnoreCase));
         var agy = state.Agy.Windows.OrderBy(w => w.RemainingPercent).FirstOrDefault();

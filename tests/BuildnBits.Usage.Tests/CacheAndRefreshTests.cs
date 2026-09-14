@@ -1,3 +1,4 @@
+using System.Text.Json;
 using BuildnBits.Usage.Core.Models;
 using BuildnBits.Usage.Core.Refresh;
 using BuildnBits.Usage.Core.Storage;
@@ -47,6 +48,30 @@ public class CacheAndRefreshTests
         var data = UsageAdaptiveCard.DataJson(CombinedUsageState.Empty, DateTimeOffset.UtcNow);
         Assert.Contains("codexFiveRemaining", data);
         Assert.Contains("agyRemaining", data);
+    }
+
+    [Fact]
+    public void Adaptive_card_does_not_relabel_bot_only_usage_as_build()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var state = new CombinedUsageState(
+            new ProviderSnapshot(ProviderKind.Codex, UsageStatus.Unknown, null, [], now, null),
+            new ProviderSnapshot(
+                ProviderKind.Grok,
+                UsageStatus.Ok,
+                "SuperGrok",
+                [new UsageWindow("Bot", 10080, 20, 80, now.AddDays(1))],
+                now,
+                null),
+            now,
+            now);
+
+        using var document = JsonDocument.Parse(UsageAdaptiveCard.DataJson(state, now));
+
+        var build = document.RootElement.GetProperty("grokBuildRemaining");
+        Assert.Equal(JsonValueKind.String, build.ValueKind);
+        Assert.Equal("—", build.GetString());
+        Assert.Equal(80, document.RootElement.GetProperty("grokBotRemaining").GetInt32());
     }
 
     [Fact]

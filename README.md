@@ -169,7 +169,7 @@ For development signing, see [the signing guide](src/BuildnBits.Usage.Package/si
 
 ## Settings and future work
 
-Settings—available from either tray icon—cover launch at login, which icons to show, larger tray digits, the 3/5/10-minute refresh interval, and the cache folder. Diagnostics also offers Open log and Copy recent log. Tokens and cookies are never stored in Settings or the application log.
+Settings—available from either tray icon—cover launch at login, independent inclusion of Codex 5-hour and 7-day periods, Grok weekly usage, Antigravity weekly usage, larger tray digits, the 3/5/10-minute refresh interval, and the cache folder. The app keeps one square per provider; a provider square uses the lowest remaining value among its selected periods, while the popup still shows every usage row. Tokens and cookies are never stored in Settings or the application log.
 
 Widgets Board integration is currently disabled and tracked in [FUTURE.md](FUTURE.md). The MSIX packaging project remains in the repository for that future work.
 

@@ -130,4 +130,86 @@ public class GrokParsingTests
         Assert.Equal("Build", snapshot.Windows[0].Label);
         Assert.Equal(75, snapshot.Windows[0].RemainingPercent);
     }
+
+    [Fact]
+    public void Parses_build_and_bot_product_usage_as_weekly_windows()
+    {
+        const string json = """
+            {
+              "config": {
+                "currentPeriod": {
+                  "type": 2,
+                  "end": "2026-06-08T00:00:00Z"
+                },
+                "productUsage": [
+                  { "product": "PRODUCT_GROK_BUILD", "usagePercent": "invalid" },
+                  { "product": 4, "usagePercent": 60 },
+                  { "product": "PRODUCT_GROK_BUILD", "usagePercent": 25 },
+                  { "product": "PRODUCT_API", "usagePercent": 99 }
+                ]
+              }
+            }
+            """;
+        using var doc = JsonDocument.Parse(json);
+
+        var snapshot = GrokBillingParser.Parse(doc.RootElement, DateTimeOffset.UtcNow);
+
+        Assert.Collection(
+            snapshot.Windows,
+            build =>
+            {
+                Assert.Equal("Build", build.Label);
+                Assert.Equal(10080, build.DurationMinutes);
+                Assert.Equal(75, build.RemainingPercent);
+            },
+            bot =>
+            {
+                Assert.Equal("Bot", bot.Label);
+                Assert.Equal(10080, bot.DurationMinutes);
+                Assert.Equal(40, bot.RemainingPercent);
+            });
+    }
+
+    [Fact]
+    public void Unsupported_nonempty_product_usage_does_not_use_aggregate_fallback()
+    {
+        const string json = """
+            {
+              "config": {
+                "creditUsagePercent": 20,
+                "productUsage": [
+                  { "product": "PRODUCT_API", "usagePercent": 20 }
+                ]
+              }
+            }
+            """;
+        using var doc = JsonDocument.Parse(json);
+
+        var snapshot = GrokBillingParser.Parse(doc.RootElement, DateTimeOffset.UtcNow);
+
+        Assert.Empty(snapshot.Windows);
+    }
+
+    [Fact]
+    public void Skips_nonfinite_usage_percent_before_first_valid_duplicate()
+    {
+        const string json = """
+            {
+              "config": {
+                "productUsage": [
+                  { "product": "PRODUCT_GROK_BUILD", "usagePercent": 1e999 },
+                  { "product": "PRODUCT_GROK_BUILD", "usagePercent": 25 }
+                ]
+              }
+            }
+            """;
+        using var doc = JsonDocument.Parse(json);
+
+        var snapshot = GrokBillingParser.Parse(doc.RootElement, Now);
+
+        var build = Assert.Single(snapshot.Windows);
+        Assert.Equal("Build", build.Label);
+        Assert.Equal(75, build.RemainingPercent);
+    }
+
 }

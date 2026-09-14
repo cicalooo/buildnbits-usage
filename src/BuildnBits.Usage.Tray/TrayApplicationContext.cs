@@ -142,7 +142,11 @@ public sealed class TrayApplicationContext : ApplicationContext
 
     private void OpenSettings()
     {
-        using var dialog = new SettingsForm(_settings, _settingsStore, _cache.PathOnDisk);
+        using var dialog = new SettingsForm(
+            _settings,
+            _settingsStore,
+            _cache.PathOnDisk,
+            _refresh.Current);
         if (dialog.ShowDialog() == DialogResult.OK)
         {
             _settings = dialog.Result;

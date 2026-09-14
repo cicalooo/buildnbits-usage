@@ -4,20 +4,28 @@
 
 $ErrorActionPreference = "Stop"
 $root = $PSScriptRoot
-$version = "1.2.1"
 $props = Join-Path $root "Directory.Build.props"
+$version = $null
 if (Test-Path $props) {
     $m = Select-String -Path $props -Pattern "<Version>([^<]+)</Version>" | Select-Object -First 1
     if ($m) { $version = $m.Matches[0].Groups[1].Value }
+}
+if ([string]::IsNullOrWhiteSpace($version)) {
+    throw "Directory.Build.props must define a release <Version>."
 }
 
 $out = Join-Path $root "artifacts\portable"
 $releaseDir = Join-Path $root "artifacts\release\v$version"
 $zipName = "BuildnBits.Usage-$version-portable-win-x64.zip"
 $zip = Join-Path $releaseDir $zipName
+$sums = Join-Path $releaseDir "SHA256SUMS.txt"
+$releaseNotes = Join-Path $releaseDir "RELEASE-NOTES.md"
 
 if (Test-Path $out) { Remove-Item $out -Recurse -Force }
 New-Item -ItemType Directory -Force -Path $out, $releaseDir | Out-Null
+foreach ($path in @($zip, $sums, $releaseNotes)) {
+    if (Test-Path $path) { Remove-Item $path -Force }
+}
 
 dotnet publish (Join-Path $root "src\BuildnBits.Usage.Tray\BuildnBits.Usage.Tray.csproj") `
   -c Release `
@@ -30,6 +38,10 @@ dotnet publish (Join-Path $root "src\BuildnBits.Usage.Tray\BuildnBits.Usage.Tray
   -p:DebugType=None `
   -p:DebugSymbols=false `
   -o $out
+$publishExitCode = $LASTEXITCODE
+if ($publishExitCode -ne 0) {
+    throw "dotnet publish failed with exit code $publishExitCode."
+}
 
 Get-ChildItem $out -Filter *.pdb -Recurse | Remove-Item -Force
 Get-ChildItem $out -Filter createdump.exe -Recurse | Remove-Item -Force
@@ -37,13 +49,13 @@ Set-Content -Path (Join-Path $out "portable.flag") -Value "BuildnBits.Usage port
 Copy-Item (Join-Path $root "README.md") (Join-Path $out "README.md") -Force
 Copy-Item (Join-Path $root "LICENSE") (Join-Path $out "LICENSE") -Force -ErrorAction SilentlyContinue
 
+Copy-Item (Join-Path $root "docs\release-notes-v$version.md") $releaseNotes -Force -ErrorAction Stop
+
 if (Test-Path $zip) { Remove-Item $zip -Force }
 Compress-Archive -Path (Join-Path $out "*") -DestinationPath $zip
 
 $hash = (Get-FileHash -Algorithm SHA256 $zip).Hash.ToLowerInvariant()
-$sums = Join-Path $releaseDir "SHA256SUMS.txt"
 Set-Content -Path $sums -Value "$hash  $zipName" -Encoding ascii
-Copy-Item (Join-Path $root "docs\release-notes-v$version.md") (Join-Path $releaseDir "RELEASE-NOTES.md") -Force -ErrorAction SilentlyContinue
 
 Write-Host "Portable folder: $out"
 Write-Host "Release zip:     $zip"

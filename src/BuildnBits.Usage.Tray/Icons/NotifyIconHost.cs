@@ -41,20 +41,25 @@ public sealed class NotifyIconHost : IDisposable
         _last = state;
         _launchAtLogin = launchAtLogin;
         _settings = settings ?? _settings;
-        if (!_settings.ShowCodexIcon && !_settings.ShowGrokIcon && !_settings.ShowAgyIcon)
-        {
-            _settings.ShowCodexIcon = true;
-        }
+        _settings.Normalize();
+        TraySquareCatalog.EnsureAtLeastOneVisible(state, _settings);
+
+        var codexOptions = TraySquareCatalog.SelectedOptions(state, ProviderKind.Codex, _settings);
+        var grokOptions = TraySquareCatalog.SelectedOptions(state, ProviderKind.Grok, _settings);
+        var agyOptions = TraySquareCatalog.SelectedOptions(state, ProviderKind.Agy, _settings);
+        var codexWindows = TraySquareCatalog.SelectedWindows(state, ProviderKind.Codex, _settings);
+        var grokWindows = TraySquareCatalog.SelectedWindows(state, ProviderKind.Grok, _settings);
+        var agyWindows = TraySquareCatalog.SelectedWindows(state, ProviderKind.Agy, _settings);
 
         var highContrast = SystemInformation.HighContrast;
         var larger = _settings.LargerTrayDigits;
-        var codexRemaining = state.Codex.LowestRemainingPercent is { } c
+        var codexRemaining = LowestRemaining(codexWindows) is { } c
             ? PercentageMath.DisplayPercent(c)
             : (int?)null;
-        var grokRemaining = (state.Grok.Weekly?.RemainingPercent ?? state.Grok.LowestRemainingPercent) is { } g
+        var grokRemaining = LowestRemaining(grokWindows) is { } g
             ? PercentageMath.DisplayPercent(g)
             : (int?)null;
-        var agyRemaining = state.Agy.LowestRemainingPercent is { } a
+        var agyRemaining = LowestRemaining(agyWindows) is { } a
             ? PercentageMath.DisplayPercent(a)
             : (int?)null;
 
@@ -62,12 +67,12 @@ public sealed class NotifyIconHost : IDisposable
         Replace(ref _grokIcon, _grok, UsageIconRenderer.Create(ProviderKind.Grok, grokRemaining, highContrast, largerDigits: larger));
         Replace(ref _agyIcon, _agy, UsageIconRenderer.Create(ProviderKind.Agy, agyRemaining, highContrast, largerDigits: larger));
 
-        _codex.Text = Truncate(CodexTooltip(state.Codex));
-        _grok.Text = Truncate(GrokTooltip(state.Grok));
-        _agy.Text = Truncate(AgyTooltip(state.Agy));
-        _codex.Visible = _settings.ShowCodexIcon;
-        _grok.Visible = _settings.ShowGrokIcon;
-        _agy.Visible = _settings.ShowAgyIcon;
+        _codex.Text = Truncate(CodexTooltip(state.Codex, codexWindows));
+        _grok.Text = Truncate(GrokTooltip(state.Grok, grokWindows));
+        _agy.Text = Truncate(AgyTooltip(state.Agy, agyWindows));
+        _codex.Visible = codexOptions.Count > 0;
+        _grok.Visible = grokOptions.Count > 0;
+        _agy.Visible = agyOptions.Count > 0;
 
         RebuildMenus(launchAtLogin);
     }
@@ -146,28 +151,37 @@ public sealed class NotifyIconHost : IDisposable
         field = next;
     }
 
-    private static string CodexTooltip(ProviderSnapshot snapshot)
-    {
-        var five = snapshot.WindowByDuration(300);
-        var week = snapshot.WindowByDuration(10080);
-        var lowest = snapshot.LowestRemainingPercent;
-        var plan = string.IsNullOrWhiteSpace(snapshot.PlanLabel) ? string.Empty : $" ({snapshot.PlanLabel})";
-        return $"{RefreshAge(snapshot.FetchedAtUtc)} · Codex{plan} {lowest:0}% remaining. 5h {five?.RemainingPercent:0}% ({ResetCountdown.LocalResetLabel(five?.ResetsAtUtc)}). 7d {week?.RemainingPercent:0}% ({ResetCountdown.LocalResetLabel(week?.ResetsAtUtc)}). {snapshot.Status}";
-    }
+    private static double? LowestRemaining(IReadOnlyList<UsageWindow> windows) =>
+        windows.Count == 0 ? null : windows.Min(window => window.RemainingPercent);
 
-    private static string GrokTooltip(ProviderSnapshot snapshot)
+    private static string CodexTooltip(ProviderSnapshot snapshot, IReadOnlyList<UsageWindow> windows)
     {
-        var week = snapshot.Weekly ?? snapshot.Windows.FirstOrDefault();
         var plan = string.IsNullOrWhiteSpace(snapshot.PlanLabel) ? string.Empty : $" ({snapshot.PlanLabel})";
-        return $"{RefreshAge(snapshot.FetchedAtUtc)} · Grok{plan} weekly {week?.RemainingPercent:0}% remaining ({ResetCountdown.LocalResetLabel(week?.ResetsAtUtc)}). {snapshot.Status}";
-    }
-
-    private static string AgyTooltip(ProviderSnapshot snapshot)
-    {
-        var pools = snapshot.Windows.Count == 0
+        var details = windows.Count == 0
             ? "unavailable"
-            : string.Join(", ", snapshot.Windows.Select(w =>
-                $"{w.Label} {w.RemainingPercent:0}% ({ResetCountdown.LocalResetLabel(w.ResetsAtUtc)})"));
+            : string.Join(", ", windows.Select(window =>
+                $"{window.Label} {window.RemainingPercent:0}% ({ResetCountdown.LocalResetLabel(window.ResetsAtUtc)})"));
+        var lowest = LowestRemaining(windows);
+        var lowestText = lowest is { } value ? $"{value:0}%" : "unavailable";
+        return $"{RefreshAge(snapshot.FetchedAtUtc)} · Codex{plan} {lowestText} remaining. {details}. {snapshot.Status}";
+    }
+
+    private static string GrokTooltip(ProviderSnapshot snapshot, IReadOnlyList<UsageWindow> windows)
+    {
+        var plan = string.IsNullOrWhiteSpace(snapshot.PlanLabel) ? string.Empty : $" ({snapshot.PlanLabel})";
+        var details = windows.Count == 0
+            ? "unavailable"
+            : string.Join(", ", windows.Select(window =>
+                $"{window.Label} {window.RemainingPercent:0}% ({ResetCountdown.LocalResetLabel(window.ResetsAtUtc)})"));
+        return $"{RefreshAge(snapshot.FetchedAtUtc)} · Grok{plan} {details}. {snapshot.Status}";
+    }
+
+    private static string AgyTooltip(ProviderSnapshot snapshot, IReadOnlyList<UsageWindow> windows)
+    {
+        var pools = windows.Count == 0
+            ? "unavailable"
+            : string.Join(", ", windows.Select(window =>
+                $"{window.Label} {window.RemainingPercent:0}% ({ResetCountdown.LocalResetLabel(window.ResetsAtUtc)})"));
         var plan = string.IsNullOrWhiteSpace(snapshot.PlanLabel) ? string.Empty : $" ({snapshot.PlanLabel})";
         return $"{RefreshAge(snapshot.FetchedAtUtc)} · Google Antigravity [agy]{plan}: {pools}. {snapshot.Status}";
     }

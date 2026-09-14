@@ -1,4 +1,5 @@
 using System.Text.Json;
+using BuildnBits.Usage.Core.Models;
 
 namespace BuildnBits.Usage.Core.Storage;
 
@@ -11,6 +12,8 @@ public sealed class AppSettings
     public bool ShowCodexIcon { get; set; } = true;
     public bool ShowGrokIcon { get; set; } = true;
     public bool ShowAgyIcon { get; set; } = true;
+    public Dictionary<string, bool> TraySquareVisibility { get; set; } =
+        new(StringComparer.OrdinalIgnoreCase);
     public bool LargerTrayDigits { get; set; } = true;
 
     private int _refreshIntervalMinutes = DefaultRefreshIntervalMinutes;
@@ -27,14 +30,71 @@ public sealed class AppSettings
     public static int ClampRefreshInterval(int minutes) =>
         ClampRefreshIntervalMinutes(minutes);
 
+    public bool IsTraySquareVisible(string key, ProviderKind provider)
+    {
+        if (TraySquareVisibility is not null && TraySquareVisibility.TryGetValue(key, out var visible))
+        {
+            return visible;
+        }
+
+        return provider switch
+        {
+            ProviderKind.Codex => ShowCodexIcon,
+            ProviderKind.Grok => ShowGrokIcon,
+            ProviderKind.Agy => ShowAgyIcon,
+            _ => true
+        };
+    }
+
+    public void SetTraySquareVisible(string key, bool visible)
+    {
+        TraySquareVisibility ??= new(StringComparer.OrdinalIgnoreCase);
+        TraySquareVisibility[key] = visible;
+    }
+
     public void Normalize()
     {
         RefreshIntervalMinutes = RefreshIntervalMinutes;
-        if (!ShowCodexIcon && !ShowGrokIcon && !ShowAgyIcon)
+        var visibility = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+        if (TraySquareVisibility is not null)
+        {
+            foreach (var pair in TraySquareVisibility)
+            {
+                if (!string.IsNullOrWhiteSpace(pair.Key))
+                {
+                    visibility[pair.Key] = pair.Value;
+                }
+            }
+        }
+
+        TraySquareVisibility = visibility;
+        var seedLegacyVisibility = TraySquareVisibility.Count == 0;
+        if (seedLegacyVisibility)
+        {
+            TraySquareVisibility[TraySquareKeys.CodexFiveHour] = ShowCodexIcon;
+            TraySquareVisibility[TraySquareKeys.CodexSevenDay] = ShowCodexIcon;
+            TraySquareVisibility[TraySquareKeys.GrokWeekly] = ShowGrokIcon;
+            TraySquareVisibility[TraySquareKeys.AgyWeekly] = ShowAgyIcon;
+        }
+
+        if (seedLegacyVisibility && !ShowCodexIcon && !ShowGrokIcon && !ShowAgyIcon)
         {
             ShowCodexIcon = true;
+            TraySquareVisibility[TraySquareKeys.CodexFiveHour] = true;
+        }
+
+        if (!HasKnownVisibleTraySquare())
+        {
+            TraySquareVisibility[TraySquareKeys.CodexFiveHour] = true;
         }
     }
+
+    private bool HasKnownVisibleTraySquare() =>
+        TraySquareVisibility.Values.Any(static visible => visible) ||
+        IsTraySquareVisible(TraySquareKeys.CodexFiveHour, ProviderKind.Codex) ||
+        IsTraySquareVisible(TraySquareKeys.CodexSevenDay, ProviderKind.Codex) ||
+        IsTraySquareVisible(TraySquareKeys.GrokWeekly, ProviderKind.Grok) ||
+        IsTraySquareVisible(TraySquareKeys.AgyWeekly, ProviderKind.Agy);
 }
 
 public sealed class AppSettingsStore

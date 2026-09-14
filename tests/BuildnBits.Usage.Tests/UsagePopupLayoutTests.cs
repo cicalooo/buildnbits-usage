@@ -19,6 +19,7 @@ public sealed class UsagePopupLayoutTests
         var allSectionsVisible = false;
         var sectionDetails = string.Empty;
         var firstAgyLabel = string.Empty;
+        var codexLabels = string.Empty;
         var grokLabels = string.Empty;
         var thread = new Thread(() =>
         {
@@ -34,6 +35,7 @@ public sealed class UsagePopupLayoutTests
                         "Plus",
                         [
                             new UsageWindow("5-hour", 300, 20, 80, resetSoon),
+                            new UsageWindow("5-hour duplicate", 300, 30, 70, resetSoon),
                             new UsageWindow("7-day", 10080, 40, 60, resetLater)
                         ],
                         DateTimeOffset.UtcNow,
@@ -44,7 +46,8 @@ public sealed class UsagePopupLayoutTests
                         "SuperGrok",
                         [
                             new UsageWindow("Build", 10080, 10, 90, resetLater),
-                            new UsageWindow("Bot", 10080, 25, 75, resetLater)
+                            new UsageWindow("Bot", 10080, 25, 75, resetLater),
+                            new UsageWindow("Future", 123, 30, 70, resetSoon)
                         ],
                         DateTimeOffset.UtcNow,
                         null),
@@ -78,9 +81,11 @@ public sealed class UsagePopupLayoutTests
                     .Cast<Control>()
                     .All(control => !control.IsDisposed && control.Height > 0);
 
-                // Grok is providers.Controls[1]; Agy is [2]
+                // Codex is providers.Controls[0]; Grok is [1]; Agy is [2]
+                var codexSection = providers.Controls[0];
                 var grokSection = providers.Controls[1];
                 var agySection = providers.Controls[2];
+                codexLabels = string.Join("|", FindRowLabels(codexSection));
                 grokLabels = string.Join("|", FindRowLabels(grokSection));
                 firstAgyLabel = FindRowLabels(agySection).FirstOrDefault() ?? "";
             }
@@ -97,8 +102,10 @@ public sealed class UsagePopupLayoutTests
         Assert.Equal(3, sectionCount);
         Assert.True(providerHeight > 0);
         Assert.True(allSectionsVisible, sectionDetails);
+        Assert.Contains("5h duplicate", codexLabels);
         Assert.Contains("Build", grokLabels);
         Assert.Contains("Bot", grokLabels);
+        Assert.Contains("Future", grokLabels);
         Assert.Equal("Gemini 5h", firstAgyLabel);
     }
 
