@@ -9,8 +9,8 @@
     <AnalysisLevel>latest</AnalysisLevel>
     <Company>BuildnBits</Company>
     <Product>BuildnBits Usage</Product>
-    <Version>1.3.0</Version>
-    <AssemblyInformationalVersion>1.3.0</AssemblyInformationalVersion>
+    <Version>1.3.1</Version>
+    <AssemblyInformationalVersion>1.3.1</AssemblyInformationalVersion>
     <Authors>cicalooo</Authors>
   </PropertyGroup>
 </Project>

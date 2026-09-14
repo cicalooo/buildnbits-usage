@@ -7,20 +7,20 @@ public sealed class VersionMetadataTests
     [Fact]
     public void Runtime_client_version_matches_release_version()
     {
-        Assert.Equal("1.3.0", AppVersion.Current);
+        Assert.Equal("1.3.1", AppVersion.Current);
     }
 
     [Fact]
-    public void Runtime_and_packaging_metadata_match_1_3_0()
+    public void Runtime_and_packaging_metadata_match_1_3_1()
     {
         var root = FindRoot();
-        Assert.Contains("<Version>1.3.0</Version>", File.ReadAllText(Path.Combine(root, "Directory.Build.props")), StringComparison.Ordinal);
-        Assert.Contains("<assemblyIdentity version=\"1.3.0.0\"", File.ReadAllText(
+        Assert.Contains("<Version>1.3.1</Version>", File.ReadAllText(Path.Combine(root, "Directory.Build.props")), StringComparison.Ordinal);
+        Assert.Contains("<assemblyIdentity version=\"1.3.1.0\"", File.ReadAllText(
             Path.Combine(root, "src", "BuildnBits.Usage.Tray", "app.manifest")), StringComparison.Ordinal);
-        Assert.Contains("Version=\"1.3.0.0\"", File.ReadAllText(
+        Assert.Contains("Version=\"1.3.1.0\"", File.ReadAllText(
             Path.Combine(root, "src", "BuildnBits.Usage.Package", "Package.appxmanifest")), StringComparison.Ordinal);
-        Assert.Contains("# BuildnBits.Usage 1.3.0", File.ReadAllText(
-            Path.Combine(root, "docs", "release-notes-v1.3.0.md")), StringComparison.Ordinal);
+        Assert.Contains("# BuildnBits.Usage 1.3.1", File.ReadAllText(
+            Path.Combine(root, "docs", "release-notes-v1.3.1.md")), StringComparison.Ordinal);
     }
 
     [Fact]
