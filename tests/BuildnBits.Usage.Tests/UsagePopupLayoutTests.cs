@@ -339,6 +339,49 @@ public sealed class UsagePopupLayoutTests
         Assert.Contains("7d", codexLabels, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public void Pin_checkbox_switches_between_complete_popup_and_filtered_widget()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var before = string.Empty;
+        var pinned = string.Empty;
+        var unpinned = string.Empty;
+        RunSta(() =>
+        {
+            using var form = new UsagePopupForm();
+            form.Bind(
+                CreateVisibilityState(),
+                launchAtLogin: false,
+                CreateGrokOnlyTraySettings(),
+                pinned: false);
+            form.CreateControl();
+            form.PerformLayout();
+            before = ReadSectionsAndStatus(form).Sections;
+
+            var pin = Descendants(form)
+                .OfType<CheckBox>()
+                .Single(check => check.Text == "Pin as desktop widget");
+            pin.Checked = true;
+            form.PerformLayout();
+            pinned = ReadSectionsAndStatus(form).Sections;
+
+            pin.Checked = false;
+            form.PerformLayout();
+            unpinned = ReadSectionsAndStatus(form).Sections;
+        });
+
+        Assert.Contains("Codex", before, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Codex", pinned, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Grok", pinned, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Antigravity", pinned, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Codex", unpinned, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Antigravity", unpinned, StringComparison.OrdinalIgnoreCase);
+    }
+
     private static CombinedUsageState CreateVisibilityState()
     {
         var now = DateTimeOffset.UtcNow;

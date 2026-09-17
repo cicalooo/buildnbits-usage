@@ -119,6 +119,9 @@ public sealed class UsagePopupForm : Form
             ApplyPinnedMode();
             if (!_suppressPinEvent)
             {
+                RebuildContent();
+                ApplyTheme();
+                ResizeForContent();
                 PinWidgetChanged?.Invoke(this, _pin.Checked);
             }
         };
