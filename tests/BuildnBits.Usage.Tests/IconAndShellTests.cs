@@ -298,17 +298,6 @@ public class IconAndShellTests
         Assert.Contains("ApplyIconsOnUi", toggle, StringComparison.Ordinal);
     }
 
-    [Fact]
-    public void Grok_popup_renders_every_usage_window()
-    {
-        var popup = File.ReadAllText(FindSource("BuildnBits.Usage.Tray", "Ui", "UsagePopupForm.cs"));
-
-        Assert.Contains("WindowsForPopup(ProviderKind.Grok, snapshot)", popup, StringComparison.Ordinal);
-        Assert.Contains("return snapshot.Windows;", popup, StringComparison.Ordinal);
-        Assert.DoesNotContain("snapshot.Weekly ?? snapshot.Windows.FirstOrDefault()", popup, StringComparison.Ordinal);
-        Assert.Equal(3, popup.Split("AddOrderedRows(section", StringSplitOptions.None).Length - 1);
-    }
-
     private static string Block(string source, string marker)
     {
         var start = source.IndexOf(marker, StringComparison.Ordinal);

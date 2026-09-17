@@ -293,18 +293,6 @@ public sealed class UsagePopupForm : Form
         }
     }
 
-    private IReadOnlyList<UsageWindow> WindowsForPopup(ProviderKind provider, ProviderSnapshot snapshot)
-    {
-        // Grok's only tray square is Build; when it is enabled, show the full Grok snapshot
-        // (Build, Bot, etc.) in the popup.
-        if (provider == ProviderKind.Grok)
-        {
-            return snapshot.Windows;
-        }
-
-        return TraySquareCatalog.SelectedWindows(_boundState, provider, _boundSettings);
-    }
-
     private static string ProviderLabel(ProviderKind provider) => provider switch
     {
         ProviderKind.Codex => "Codex",
@@ -429,10 +417,9 @@ public sealed class UsagePopupForm : Form
     private ProviderSection BuildCodexSection(ProviderSnapshot snapshot)
     {
         var section = new ProviderSection("Codex", snapshot, UsageIconRenderer.CodexColor);
-        var windows = WindowsForPopup(ProviderKind.Codex, snapshot);
-        if (HasUsageRows(snapshot) && windows.Count > 0)
+        if (HasUsageRows(snapshot))
         {
-            AddOrderedRows(section, windows);
+            AddOrderedRows(section, snapshot.Windows);
         }
 
         section.Finish();
@@ -442,10 +429,9 @@ public sealed class UsagePopupForm : Form
     private ProviderSection BuildGrokSection(ProviderSnapshot snapshot)
     {
         var section = new ProviderSection("Grok", snapshot, UsageIconRenderer.GrokColor);
-        var windows = WindowsForPopup(ProviderKind.Grok, snapshot);
-        if (HasUsageRows(snapshot) && windows.Count > 0)
+        if (HasUsageRows(snapshot))
         {
-            AddOrderedRows(section, windows);
+            AddOrderedRows(section, snapshot.Windows);
         }
 
         section.Finish();
@@ -455,10 +441,9 @@ public sealed class UsagePopupForm : Form
     private ProviderSection BuildAgySection(ProviderSnapshot snapshot)
     {
         var section = new ProviderSection("Antigravity", snapshot, UsageIconRenderer.AgyColor);
-        var windows = WindowsForPopup(ProviderKind.Agy, snapshot);
-        if (HasUsageRows(snapshot) && windows.Count > 0)
+        if (HasUsageRows(snapshot))
         {
-            AddOrderedRows(section, windows);
+            AddOrderedRows(section, snapshot.Windows);
         }
 
         section.Finish();

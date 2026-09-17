@@ -303,6 +303,42 @@ public sealed class UsagePopupLayoutTests
         Assert.Contains("Grok", statusText, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public void Pinned_widget_keeps_all_rows_when_any_provider_square_is_visible()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var codexLabels = string.Empty;
+        RunSta(() =>
+        {
+            using var form = new UsagePopupForm();
+            var settings = new AppSettings
+            {
+                TraySquareVisibility = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase)
+                {
+                    [TraySquareKeys.CodexFiveHour] = true,
+                    [TraySquareKeys.CodexSevenDay] = false,
+                    [TraySquareKeys.GrokWeekly] = false,
+                    [TraySquareKeys.AgyWeekly] = false
+                }
+            };
+            form.Bind(CreateVisibilityState(), launchAtLogin: false, settings, pinned: true);
+            form.CreateControl();
+            form.PerformLayout();
+
+            var layout = Assert.IsType<TableLayoutPanel>(form.Controls[0]);
+            var providers = Assert.IsType<FlowLayoutPanel>(layout.Controls[0]);
+            var codex = Assert.Single(providers.Controls.Cast<Control>());
+            codexLabels = string.Join("|", FindRowLabels(codex));
+        });
+
+        Assert.Contains("5h", codexLabels, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("7d", codexLabels, StringComparison.OrdinalIgnoreCase);
+    }
+
     private static CombinedUsageState CreateVisibilityState()
     {
         var now = DateTimeOffset.UtcNow;
