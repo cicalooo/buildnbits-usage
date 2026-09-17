@@ -32,51 +32,22 @@ public class IconAndShellTests
     [InlineData(88)]
     [InlineData(92)]
     [InlineData(100)]
-    public void Larger_digits_keep_ink_inside_the_border(int remaining)
+    public void Larger_digits_render_visible_ink_inside_the_border(int remaining)
     {
         if (!OperatingSystem.IsWindows())
         {
             return;
         }
 
-        using var icon = UsageIconRenderer.Create(
+        using var bitmap = UsageIconRenderer.RenderBitmap(
             ProviderKind.Codex,
             remaining,
             highContrast: false,
             dpiOverride: 96,
             largerDigits: true);
-        using var bitmap = icon.ToBitmap();
+
         Assert.True(bitmap.Width >= 32);
-
-        var inkOnOuterRing = false;
-        var inkOnBottomPadding = false;
-        for (var y = 0; y < bitmap.Height; y++)
-        {
-            for (var x = 0; x < bitmap.Width; x++)
-            {
-                var pixel = bitmap.GetPixel(x, y);
-                var isWhiteInk = pixel.A > 200 && pixel.R > 220 && pixel.G > 220 && pixel.B > 220;
-                if (!isWhiteInk)
-                {
-                    continue;
-                }
-
-                var onOuterRing = x == 0 || y == 0 || x == bitmap.Width - 1 || y == bitmap.Height - 1;
-                if (onOuterRing)
-                {
-                    inkOnOuterRing = true;
-                }
-
-                // Keep the underside of the glyph clear of the bottom border.
-                if (y >= bitmap.Height - 5)
-                {
-                    inkOnBottomPadding = true;
-                }
-            }
-        }
-
-        Assert.False(inkOnOuterRing, $"Digit ink touched the outer border for {remaining}%.");
-        Assert.False(inkOnBottomPadding, $"Digit ink sat too low in the square for {remaining}%.");
+        AssertInkIsVisibleAndClearOfBorder(bitmap, remaining);
     }
 
     [Fact]
@@ -296,6 +267,48 @@ public class IconAndShellTests
         Assert.Contains("Show floating desktop widget", host, StringComparison.Ordinal);
         Assert.Contains("ApplyFloatingWidgetState", toggle, StringComparison.Ordinal);
         Assert.Contains("ApplyIconsOnUi", toggle, StringComparison.Ordinal);
+    }
+
+    private static Rectangle WhiteInkBounds(Bitmap bitmap)
+    {
+        var left = bitmap.Width;
+        var top = bitmap.Height;
+        var right = -1;
+        var bottom = -1;
+
+        for (var y = 0; y < bitmap.Height; y++)
+        {
+            for (var x = 0; x < bitmap.Width; x++)
+            {
+                var pixel = bitmap.GetPixel(x, y);
+                var isWhiteInk = pixel.A > 200 && pixel.R > 220 && pixel.G > 220 && pixel.B > 220;
+                if (!isWhiteInk)
+                {
+                    continue;
+                }
+
+                left = Math.Min(left, x);
+                top = Math.Min(top, y);
+                right = Math.Max(right, x);
+                bottom = Math.Max(bottom, y);
+            }
+        }
+
+        return right < left || bottom < top
+            ? Rectangle.Empty
+            : Rectangle.FromLTRB(left, top, right + 1, bottom + 1);
+    }
+
+    private static void AssertInkIsVisibleAndClearOfBorder(Bitmap bitmap, int remaining)
+    {
+        var bounds = WhiteInkBounds(bitmap);
+        Assert.False(bounds.IsEmpty, $"No digit ink was rendered for {remaining}%.");
+        Assert.True(bounds.Left > 0, $"Digit ink touched the left border for {remaining}%.");
+        Assert.True(bounds.Top > 0, $"Digit ink touched the top border for {remaining}%.");
+        Assert.True(bounds.Right < bitmap.Width, $"Digit ink touched the right border for {remaining}%.");
+        Assert.True(
+            bounds.Bottom <= bitmap.Height - 5,
+            $"Digit ink sat too low in the square for {remaining}%: {bounds}.");
     }
 
     private static string Block(string source, string marker)
