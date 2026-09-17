@@ -305,12 +305,6 @@ public sealed class UsagePopupForm : Form
 
     public void ShowNearCursor()
     {
-        if (IsPinned && Visible)
-        {
-            Activate();
-            return;
-        }
-
         var pos = Cursor.Position;
         var area = Screen.FromPoint(pos).WorkingArea;
         _maxPopupHeight = Math.Max(MinimumSize.Height, (int)(area.Height * 0.70));
@@ -749,8 +743,7 @@ internal sealed class UsageRow : UserControl
             AutoSize = false,
             Dock = DockStyle.Fill,
             TextAlign = ContentAlignment.MiddleRight,
-            // Semibold family + Bold style was optically too tall for the row.
-            Font = new Font("Segoe UI Semibold", 12f, FontStyle.Regular),
+            Font = new Font("Segoe UI", 14f, FontStyle.Bold),
             Width = 56,
             UseMnemonic = false
         };

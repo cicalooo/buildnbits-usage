@@ -19,6 +19,7 @@ public sealed class TrayApplicationContext : ApplicationContext
     private readonly UsageRefreshService _refresh;
     private readonly NotifyIconHost _icons = new();
     private readonly UsagePopupForm _popup = new();
+    private readonly UsagePopupForm _widget = new();
     private readonly SynchronizationContext? _ui;
     private AppSettings _settings;
     private bool _launchAtLogin;
@@ -67,39 +68,8 @@ public sealed class TrayApplicationContext : ApplicationContext
             ApplyIconsOnUi();
         };
 
-        _popup.RefreshClicked += (_, _) => RequestRefresh();
-        _popup.SettingsClicked += (_, _) => OpenSettings();
-        _popup.DiagnosticsClicked += (_, _) => new DiagnosticsForm(_refresh.Current, _log).Show();
-        _popup.ExitClicked += (_, _) => ExitThread();
-        _popup.LaunchAtLoginChanged += (_, enabled) =>
-        {
-            _launchAtLogin = enabled;
-            LaunchAtLogin.SetEnabled(enabled);
-            ApplyIconsOnUi();
-        };
-        _popup.PinWidgetChanged += (_, enabled) =>
-        {
-            _settings.FloatingWidgetEnabled = enabled;
-            if (enabled)
-            {
-                _settings.FloatingWidgetX = _popup.Location.X;
-                _settings.FloatingWidgetY = _popup.Location.Y;
-            }
-
-            _settingsStore.Save(_settings);
-            ApplyIconsOnUi();
-        };
-        _popup.PinnedLocationChanged += (_, _) =>
-        {
-            if (!_settings.FloatingWidgetEnabled)
-            {
-                return;
-            }
-
-            _settings.FloatingWidgetX = _popup.Location.X;
-            _settings.FloatingWidgetY = _popup.Location.Y;
-            _settingsStore.Save(_settings);
-        };
+        WirePanel(_popup, isWidget: false);
+        WirePanel(_widget, isWidget: true);
 
         var ui = SynchronizationContext.Current;
         _ui = ui;
@@ -115,7 +85,12 @@ public sealed class TrayApplicationContext : ApplicationContext
                 _icons.Apply(state, _launchAtLogin, _settings);
                 if (_popup.Visible)
                 {
-                    _popup.Bind(state, _launchAtLogin, _settings);
+                    _popup.Bind(state, _launchAtLogin, _settings, pinned: false);
+                }
+
+                if (_widget.Visible || _settings.FloatingWidgetEnabled)
+                {
+                    _widget.Bind(state, _launchAtLogin, _settings, pinned: true);
                 }
             }
 
@@ -143,9 +118,19 @@ public sealed class TrayApplicationContext : ApplicationContext
         {
             void Apply()
             {
-                if (Volatile.Read(ref _exiting) == 0 && !_popup.IsDisposed)
+                if (Volatile.Read(ref _exiting) != 0)
+                {
+                    return;
+                }
+
+                if (!_popup.IsDisposed)
                 {
                     _popup.SetRefreshProgress(progress);
+                }
+
+                if (!_widget.IsDisposed)
+                {
+                    _widget.SetRefreshProgress(progress);
                 }
             }
 
@@ -179,26 +164,56 @@ public sealed class TrayApplicationContext : ApplicationContext
         ApplyFloatingWidgetState(forceShow: _settings.FloatingWidgetEnabled);
     }
 
+    private void WirePanel(UsagePopupForm panel, bool isWidget)
+    {
+        panel.RefreshClicked += (_, _) => RequestRefresh();
+        panel.SettingsClicked += (_, _) => OpenSettings();
+        panel.DiagnosticsClicked += (_, _) => new DiagnosticsForm(_refresh.Current, _log).Show();
+        panel.ExitClicked += (_, _) => ExitThread();
+        panel.LaunchAtLoginChanged += (_, enabled) =>
+        {
+            _launchAtLogin = enabled;
+            LaunchAtLogin.SetEnabled(enabled);
+            ApplyIconsOnUi();
+        };
+        panel.PinWidgetChanged += (_, enabled) =>
+        {
+            _settings.FloatingWidgetEnabled = enabled;
+            if (enabled)
+            {
+                _settings.FloatingWidgetX = panel.Location.X;
+                _settings.FloatingWidgetY = panel.Location.Y;
+            }
+
+            _settingsStore.Save(_settings);
+            if (!isWidget && enabled)
+            {
+                panel.SetPinned(false, raiseEvent: false);
+            }
+
+            ApplyFloatingWidgetState(forceShow: enabled);
+            ApplyIconsOnUi();
+        };
+        panel.PinnedLocationChanged += (_, _) =>
+        {
+            if (!_settings.FloatingWidgetEnabled || !isWidget)
+            {
+                return;
+            }
+
+            _settings.FloatingWidgetX = panel.Location.X;
+            _settings.FloatingWidgetY = panel.Location.Y;
+            _settingsStore.Save(_settings);
+        };
+    }
+
     private void ShowPopup()
     {
         _popup.Bind(
             _refresh.Current,
             _launchAtLogin,
             _settings,
-            pinned: _settings.FloatingWidgetEnabled);
-        if (_settings.FloatingWidgetEnabled)
-        {
-            _popup.ApplyFloatingLocation(_settings.FloatingWidgetX, _settings.FloatingWidgetY);
-            _popup.SetPinned(true, raiseEvent: false);
-            if (!_popup.Visible)
-            {
-                _popup.Show();
-            }
-
-            _popup.Activate();
-            return;
-        }
-
+            pinned: false);
         _popup.ShowNearCursor();
     }
 
@@ -223,7 +238,7 @@ public sealed class TrayApplicationContext : ApplicationContext
                     _refresh.Current,
                     _launchAtLogin,
                     _settings,
-                    pinned: _settings.FloatingWidgetEnabled);
+                    pinned: false);
             }
         }
     }
@@ -232,28 +247,28 @@ public sealed class TrayApplicationContext : ApplicationContext
     {
         if (_settings.FloatingWidgetEnabled)
         {
-            _popup.Bind(_refresh.Current, _launchAtLogin, _settings, pinned: true);
+            _widget.Bind(_refresh.Current, _launchAtLogin, _settings, pinned: true);
             if (_settings.FloatingWidgetX is not null && _settings.FloatingWidgetY is not null)
             {
-                _popup.ApplyFloatingLocation(_settings.FloatingWidgetX, _settings.FloatingWidgetY);
+                _widget.ApplyFloatingLocation(_settings.FloatingWidgetX, _settings.FloatingWidgetY);
             }
-            else if (forceShow || !_popup.Visible)
+            else if (forceShow || !_widget.Visible)
             {
                 var area = Screen.PrimaryScreen?.WorkingArea ?? new Rectangle(0, 0, 800, 600);
-                _popup.ApplyFloatingLocation(area.Right - _popup.Width - 24, area.Top + 24);
-                _settings.FloatingWidgetX = _popup.Location.X;
-                _settings.FloatingWidgetY = _popup.Location.Y;
+                _widget.ApplyFloatingLocation(area.Right - _widget.Width - 24, area.Top + 24);
+                _settings.FloatingWidgetX = _widget.Location.X;
+                _settings.FloatingWidgetY = _widget.Location.Y;
                 _settingsStore.Save(_settings);
             }
 
-            _popup.SetPinned(true, raiseEvent: false);
+            _widget.SetPinned(true, raiseEvent: false);
             return;
         }
 
-        if (_popup.IsPinned)
+        if (_widget.IsPinned || _widget.Visible)
         {
-            _popup.SetPinned(false, raiseEvent: false);
-            _popup.Hide();
+            _widget.SetPinned(false, raiseEvent: false);
+            _widget.Hide();
         }
     }
 
@@ -335,6 +350,7 @@ public sealed class TrayApplicationContext : ApplicationContext
         _refresh.Dispose();
         _icons.Dispose();
         _popup.Dispose();
+        _widget.Dispose();
         _log.Dispose();
         base.ExitThreadCore();
     }
@@ -373,7 +389,16 @@ public sealed class TrayApplicationContext : ApplicationContext
                 _refresh.Current,
                 _launchAtLogin,
                 _settings,
-                pinned: _settings.FloatingWidgetEnabled);
+                pinned: false);
+        }
+
+        if (_widget.Visible || _settings.FloatingWidgetEnabled)
+        {
+            _widget.Bind(
+                _refresh.Current,
+                _launchAtLogin,
+                _settings,
+                pinned: true);
         }
     }
 }

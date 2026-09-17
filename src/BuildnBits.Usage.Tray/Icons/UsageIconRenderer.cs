@@ -46,8 +46,8 @@ public static class UsageIconRenderer
         var bitmap = new Bitmap(size, size);
         using var g = Graphics.FromImage(bitmap);
         g.SmoothingMode = SmoothingMode.None;
-        g.PixelOffsetMode = PixelOffsetMode.Half;
-        g.TextRenderingHint = TextRenderingHint.ClearTypeGridFit;
+        g.PixelOffsetMode = PixelOffsetMode.None;
+        g.TextRenderingHint = TextRenderingHint.SingleBitPerPixelGridFit;
         g.Clear(Color.Transparent);
 
         var accent = provider switch
@@ -77,77 +77,33 @@ public static class UsageIconRenderer
         var text = remainingPercent is null
             ? "—"
             : PercentageMath.DisplayPercent(remainingPercent.Value).ToString();
-        // Asymmetric padding: keep underside clearance while allowing larger digits.
-        var padX = largerDigits ? 2 : 3;
-        var padTop = largerDigits ? 2 : 3;
-        var padBottom = largerDigits ? 6 : 5;
-        var box = new RectangleF(padX, padTop, size - padX * 2, size - padTop - padBottom);
-        using var font = FitFont(g, text, box.Size, largerDigits);
-        using var brush = new SolidBrush(ink);
-        using var format = new StringFormat(StringFormat.GenericTypographic)
-        {
-            Alignment = StringAlignment.Near,
-            LineAlignment = StringAlignment.Near,
-            FormatFlags = StringFormatFlags.NoWrap
-        };
-        var measured = g.MeasureString(text, font, new SizeF(short.MaxValue, short.MaxValue), format);
-        var x = box.X + Math.Max(0f, (box.Width - measured.Width) / 2f);
-        // Mild upward bias so larger glyphs still clear the bottom border.
-        var y = box.Y + Math.Max(0f, (box.Height - measured.Height) * 0.30f);
-        if (y + measured.Height > box.Bottom)
-        {
-            y = Math.Max(box.Y, box.Bottom - measured.Height);
-        }
-
-        g.DrawString(text, font, brush, x, y, format);
+        var pad = largerDigits ? 1 : 3;
+        var box = new Rectangle(pad, pad, size - pad * 2, size - pad * 2);
+        using var font = FitFont(g, text, box.Size);
+        TextRenderer.DrawText(
+            g,
+            text,
+            font,
+            box,
+            ink,
+            TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix);
         return bitmap;
     }
 
-    private static Font FitFont(Graphics g, string text, SizeF box, bool largerDigits)
+    private static Font FitFont(Graphics g, string text, Size box)
     {
-        var maxWidth = Math.Max(8f, box.Width * 0.94f);
-        var maxHeight = Math.Max(8f, box.Height * 0.90f);
-        // Larger tray digits, still capped so shell downscaling does not clip.
-        var scale = text.Length switch
-        {
-            >= 3 => largerDigits ? 0.62f : 0.54f,
-            2 => largerDigits ? 0.78f : 0.68f,
-            _ => largerDigits ? 0.84f : 0.74f
-        };
-        var startPx = Math.Max(8, (int)Math.Floor(maxHeight * scale));
-        var candidates = new (string Name, FontStyle Style)[]
-        {
-            ("Segoe UI Semibold", FontStyle.Regular),
-            ("Segoe UI", FontStyle.Bold),
-            ("Consolas", FontStyle.Bold),
-            ("Cascadia Mono", FontStyle.Bold)
-        };
-
-        foreach (var (name, style) in candidates)
+        foreach (var name in new[] { "Segoe UI", "Consolas" })
         {
             if (!FontFamily.Families.Any(f => string.Equals(f.Name, name, StringComparison.OrdinalIgnoreCase)))
             {
                 continue;
             }
 
-            for (var px = startPx; px >= 8; px--)
+            for (var px = box.Height; px >= 8; px--)
             {
-                Font candidate;
-                try
-                {
-                    candidate = new Font(name, px, style, GraphicsUnit.Pixel);
-                }
-                catch (ArgumentException)
-                {
-                    break;
-                }
-
-                var measured = g.MeasureString(
-                    text,
-                    candidate,
-                    new SizeF(short.MaxValue, short.MaxValue),
-                    StringFormat.GenericTypographic);
-                if (measured.Width <= maxWidth && measured.Height <= maxHeight)
+                var candidate = new Font(name, px, FontStyle.Bold, GraphicsUnit.Pixel);
+                var measured = TextRenderer.MeasureText(g, text, candidate, box, TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix);
+                if (measured.Width <= box.Width && measured.Height <= box.Height)
                 {
                     return candidate;
                 }
@@ -156,7 +112,7 @@ public static class UsageIconRenderer
             }
         }
 
-        return new Font("Segoe UI", Math.Max(8, maxHeight * 0.55f), FontStyle.Bold, GraphicsUnit.Pixel);
+        return new Font("Segoe UI", Math.Max(10, box.Height * 0.7f), FontStyle.Bold, GraphicsUnit.Pixel);
     }
 
     private static int GetDpi()

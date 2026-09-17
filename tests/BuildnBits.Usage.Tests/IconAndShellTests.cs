@@ -236,7 +236,7 @@ public class IconAndShellTests
         var context = File.ReadAllText(FindSource("BuildnBits.Usage.Tray", "TrayApplicationContext.cs"));
         var preference = Block(context, "private void OnUserPreferenceChanged");
         var iconToggle = Block(context, "_icons.LaunchAtLoginToggled");
-        var popupToggle = Block(context, "_popup.LaunchAtLoginChanged");
+        var popupToggle = Block(context, "panel.LaunchAtLoginChanged");
 
         Assert.Contains("PostToUi", preference, StringComparison.Ordinal);
         Assert.DoesNotContain("_icons.Apply", preference, StringComparison.Ordinal);
@@ -303,6 +303,18 @@ public class IconAndShellTests
         Assert.Contains("ApplyIconsOnUi", toggle, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void Tray_left_click_opens_unpinned_popup_even_when_widget_is_enabled()
+    {
+        var context = File.ReadAllText(FindSource("BuildnBits.Usage.Tray", "TrayApplicationContext.cs"));
+        var showPopup = Block(context, "private void ShowPopup");
+
+        Assert.Contains("_popup.ShowNearCursor()", showPopup, StringComparison.Ordinal);
+        Assert.Contains("pinned: false", showPopup, StringComparison.Ordinal);
+        Assert.DoesNotContain("if (_settings.FloatingWidgetEnabled)", showPopup, StringComparison.Ordinal);
+        Assert.Contains("private readonly UsagePopupForm _widget", context, StringComparison.Ordinal);
+    }
+
     private static Rectangle WhiteInkBounds(Bitmap bitmap)
     {
         var left = bitmap.Width;
@@ -340,9 +352,7 @@ public class IconAndShellTests
         Assert.True(bounds.Left > 0, $"Digit ink touched the left border for {remaining}%.");
         Assert.True(bounds.Top > 0, $"Digit ink touched the top border for {remaining}%.");
         Assert.True(bounds.Right < bitmap.Width, $"Digit ink touched the right border for {remaining}%.");
-        Assert.True(
-            bounds.Bottom <= bitmap.Height - 5,
-            $"Digit ink sat too low in the square for {remaining}%: {bounds}.");
+        Assert.True(bounds.Bottom < bitmap.Height, $"Digit ink touched the bottom border for {remaining}%.");
     }
 
     private static string Block(string source, string marker)

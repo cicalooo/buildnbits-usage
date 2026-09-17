@@ -239,7 +239,7 @@ public sealed class UsagePopupLayoutTests
         Assert.Null(error);
         Assert.True(rowHeight >= 34, $"Row height {rowHeight} is too short.");
         Assert.True(contentHeight > percentHeight, $"Percent glyph {percentHeight}px does not fit in content {contentHeight}px.");
-        Assert.True(percentFontSize <= 12.5f, $"Percent font {percentFontSize}pt is still too large.");
+        Assert.True(percentFontSize >= 13f, $"Percent font {percentFontSize}pt is too small.");
     }
 
     [Fact]
