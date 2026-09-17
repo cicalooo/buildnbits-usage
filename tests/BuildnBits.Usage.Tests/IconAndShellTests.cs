@@ -50,6 +50,40 @@ public class IconAndShellTests
         AssertInkIsVisibleAndClearOfBorder(bitmap, remaining);
     }
 
+    [Theory]
+    [InlineData(8)]
+    [InlineData(88)]
+    [InlineData(100)]
+    public void Larger_digit_setting_produces_larger_visible_glyphs(int remaining)
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        using var normal = UsageIconRenderer.RenderBitmap(
+            ProviderKind.Codex,
+            remaining,
+            highContrast: false,
+            dpiOverride: 96,
+            largerDigits: false);
+        using var larger = UsageIconRenderer.RenderBitmap(
+            ProviderKind.Codex,
+            remaining,
+            highContrast: false,
+            dpiOverride: 96,
+            largerDigits: true);
+
+        var normalBounds = WhiteInkBounds(normal);
+        var largerBounds = WhiteInkBounds(larger);
+        Assert.False(normalBounds.IsEmpty);
+        Assert.False(largerBounds.IsEmpty);
+        Assert.True(
+            largerBounds.Width > normalBounds.Width || largerBounds.Height > normalBounds.Height,
+            $"Larger mode did not enlarge {remaining}: normal={normalBounds}, larger={largerBounds}.");
+        AssertInkIsVisibleAndClearOfBorder(larger, remaining);
+    }
+
     [Fact]
     public void Notify_icon_host_uses_supported_shell_surface()
     {
