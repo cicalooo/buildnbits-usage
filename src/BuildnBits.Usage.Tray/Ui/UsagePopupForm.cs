@@ -171,20 +171,33 @@ public sealed class UsagePopupForm : Form
         _boundState = state;
         _boundSettings = settings ?? _boundSettings;
         _boundSettings.Normalize();
+        if (pinned is not null)
+        {
+            SetPinned(pinned.Value, raiseEvent: false);
+        }
+
+        RebuildContent();
+        _launch.Checked = launchAtLogin;
+        ApplyTheme();
+        ResizeForContent();
+    }
+
+    private void RebuildContent()
+    {
         ClearSections();
-        if (IsProviderVisible(ProviderKind.Codex))
+        if (ShouldIncludeProvider(ProviderKind.Codex))
         {
-            _sections.Add(BuildCodexSection(state.Codex));
+            _sections.Add(BuildCodexSection(_boundState.Codex));
         }
 
-        if (IsProviderVisible(ProviderKind.Grok))
+        if (ShouldIncludeProvider(ProviderKind.Grok))
         {
-            _sections.Add(BuildGrokSection(state.Grok));
+            _sections.Add(BuildGrokSection(_boundState.Grok));
         }
 
-        if (IsProviderVisible(ProviderKind.Agy))
+        if (ShouldIncludeProvider(ProviderKind.Agy))
         {
-            _sections.Add(BuildAgySection(state.Agy));
+            _sections.Add(BuildAgySection(_boundState.Agy));
         }
 
         foreach (var section in _sections)
@@ -192,7 +205,7 @@ public sealed class UsagePopupForm : Form
             _providers.Controls.Add(section);
         }
 
-        var visibleSnapshots = VisibleSnapshots(state).ToArray();
+        var visibleSnapshots = VisibleSnapshots(_boundState).ToArray();
         var issueSnapshot = visibleSnapshots.FirstOrDefault(snapshot => snapshot.Status is not UsageStatus.Ok);
         var stale = visibleSnapshots.Any(snapshot => snapshot.Status is UsageStatus.Stale or UsageStatus.Error);
         var detail = issueSnapshot?.StatusMessage is { } message
@@ -201,14 +214,6 @@ public sealed class UsagePopupForm : Form
                 ? "Waiting for the first refresh."
                 : stale ? "Showing last successful values." : "Up to date.";
         UpdateStatus(detail);
-        _launch.Checked = launchAtLogin;
-        if (pinned is not null)
-        {
-            SetPinned(pinned.Value, raiseEvent: false);
-        }
-
-        ApplyTheme();
-        ResizeForContent();
     }
 
     public void SetRefreshProgress(RefreshProgress progress)
@@ -247,7 +252,7 @@ public sealed class UsagePopupForm : Form
         if (_progress.IsRefreshing)
         {
             var pending = _progress.PendingProviders
-                .Where(IsProviderVisible)
+                .Where(ShouldIncludeProvider)
                 .Select(ProviderLabel)
                 .ToArray();
             detail = pending.Length == 0
@@ -258,24 +263,31 @@ public sealed class UsagePopupForm : Form
         _status.Text = $"{providerLine}{Environment.NewLine}{detail}";
     }
 
-    private bool IsProviderVisible(ProviderKind provider) =>
-        TraySquareCatalog.Build(_boundState)
+    private bool ShouldIncludeProvider(ProviderKind provider)
+    {
+        if (!IsPinned)
+        {
+            return true;
+        }
+
+        return TraySquareCatalog.Build(_boundState)
             .Where(option => option.Provider == provider)
             .Any(option => _boundSettings.IsTraySquareVisible(option.Key, option.Provider));
+    }
 
     private IEnumerable<ProviderSnapshot> VisibleSnapshots(CombinedUsageState state)
     {
-        if (IsProviderVisible(ProviderKind.Codex))
+        if (ShouldIncludeProvider(ProviderKind.Codex))
         {
             yield return state.Codex;
         }
 
-        if (IsProviderVisible(ProviderKind.Grok))
+        if (ShouldIncludeProvider(ProviderKind.Grok))
         {
             yield return state.Grok;
         }
 
-        if (IsProviderVisible(ProviderKind.Agy))
+        if (ShouldIncludeProvider(ProviderKind.Agy))
         {
             yield return state.Agy;
         }

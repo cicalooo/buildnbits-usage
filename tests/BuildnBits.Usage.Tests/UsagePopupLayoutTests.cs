@@ -243,74 +243,132 @@ public sealed class UsagePopupLayoutTests
     }
 
     [Fact]
-    public void Popup_hides_providers_unchecked_in_tray_settings()
+    public void Unpinned_popup_keeps_all_provider_sections_regardless_of_tray_visibility()
     {
         if (!OperatingSystem.IsWindows())
         {
             return;
         }
 
-        Exception? error = null;
         var sectionTitles = string.Empty;
         var statusText = string.Empty;
+        RunSta(() =>
+        {
+            using var form = new UsagePopupForm();
+            form.Bind(
+                CreateVisibilityState(),
+                launchAtLogin: false,
+                CreateGrokOnlyTraySettings(),
+                pinned: false);
+            form.CreateControl();
+            form.PerformLayout();
+            (sectionTitles, statusText) = ReadSectionsAndStatus(form);
+        });
+
+        Assert.Contains("Codex", sectionTitles, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Grok", sectionTitles, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Antigravity", sectionTitles, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Codex", statusText, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Grok", statusText, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Antigravity", statusText, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Pinned_widget_hides_providers_unchecked_in_tray_settings()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var sectionTitles = string.Empty;
+        var statusText = string.Empty;
+        RunSta(() =>
+        {
+            using var form = new UsagePopupForm();
+            form.Bind(
+                CreateVisibilityState(),
+                launchAtLogin: false,
+                CreateGrokOnlyTraySettings(),
+                pinned: true);
+            form.CreateControl();
+            form.PerformLayout();
+            (sectionTitles, statusText) = ReadSectionsAndStatus(form);
+        });
+
+        Assert.Contains("Grok", sectionTitles, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Codex", sectionTitles, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Antigravity", sectionTitles, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Codex", statusText, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Grok", statusText, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static CombinedUsageState CreateVisibilityState()
+    {
+        var now = DateTimeOffset.UtcNow;
+        return new CombinedUsageState(
+            new ProviderSnapshot(
+                ProviderKind.Codex,
+                UsageStatus.Ok,
+                "Plus",
+                [
+                    new UsageWindow("5-hour", 300, 20, 80, now.AddHours(1)),
+                    new UsageWindow("7-day", 10080, 40, 60, now.AddDays(2))
+                ],
+                now,
+                null),
+            new ProviderSnapshot(
+                ProviderKind.Grok,
+                UsageStatus.Ok,
+                "SuperGrok",
+                [
+                    new UsageWindow("Build", 10080, 10, 90, now.AddDays(3)),
+                    new UsageWindow("Bot", 10080, 25, 75, now.AddDays(3))
+                ],
+                now,
+                null),
+            new ProviderSnapshot(
+                ProviderKind.Agy,
+                UsageStatus.Ok,
+                "Standard",
+                [new UsageWindow("Gemini Models · Weekly Limit Remaining", 10080, 50, 50, now.AddDays(4))],
+                now,
+                null),
+            now,
+            now);
+    }
+
+    private static AppSettings CreateGrokOnlyTraySettings() => new()
+    {
+        TraySquareVisibility = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase)
+        {
+            [TraySquareKeys.CodexFiveHour] = false,
+            [TraySquareKeys.CodexSevenDay] = false,
+            [TraySquareKeys.GrokWeekly] = true,
+            [TraySquareKeys.AgyWeekly] = false
+        }
+    };
+
+    private static (string Sections, string Status) ReadSectionsAndStatus(UsagePopupForm form)
+    {
+        var layout = Assert.IsType<TableLayoutPanel>(form.Controls[0]);
+        var providers = Assert.IsType<FlowLayoutPanel>(layout.Controls[0]);
+        var sections = string.Join(
+            "|",
+            providers.Controls.Cast<Control>().Select(control =>
+                control.Controls.OfType<Label>().FirstOrDefault()?.Text ?? control.Text));
+        var status = layout.Controls.OfType<Label>().FirstOrDefault()?.Text ?? string.Empty;
+        return (sections, status);
+    }
+
+    private static void RunSta(Action action)
+    {
+        Exception? error = null;
         var thread = new Thread(() =>
         {
             try
             {
-                using var form = new UsagePopupForm();
-                var now = DateTimeOffset.UtcNow;
-                var state = new CombinedUsageState(
-                    new ProviderSnapshot(
-                        ProviderKind.Codex,
-                        UsageStatus.Ok,
-                        "Plus",
-                        [
-                            new UsageWindow("5-hour", 300, 20, 80, now.AddHours(1)),
-                            new UsageWindow("7-day", 10080, 40, 60, now.AddDays(2))
-                        ],
-                        now,
-                        null),
-                    new ProviderSnapshot(
-                        ProviderKind.Grok,
-                        UsageStatus.Ok,
-                        "SuperGrok",
-                        [
-                            new UsageWindow("Build", 10080, 10, 90, now.AddDays(3)),
-                            new UsageWindow("Bot", 10080, 25, 75, now.AddDays(3))
-                        ],
-                        now,
-                        null),
-                    new ProviderSnapshot(
-                        ProviderKind.Agy,
-                        UsageStatus.Ok,
-                        "Standard",
-                        [new UsageWindow("Gemini Models · Weekly Limit Remaining", 10080, 50, 50, now.AddDays(4))],
-                        now,
-                        null),
-                    now,
-                    now);
-                var settings = new AppSettings
-                {
-                    TraySquareVisibility = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase)
-                    {
-                        [TraySquareKeys.CodexFiveHour] = false,
-                        [TraySquareKeys.CodexSevenDay] = false,
-                        [TraySquareKeys.GrokWeekly] = true,
-                        [TraySquareKeys.AgyWeekly] = false
-                    }
-                };
-
-                form.Bind(state, launchAtLogin: false, settings);
-                form.CreateControl();
-                form.PerformLayout();
-
-                var layout = (TableLayoutPanel)form.Controls[0];
-                var providers = (FlowLayoutPanel)layout.Controls[0];
-                sectionTitles = string.Join(
-                    "|",
-                    providers.Controls.Cast<Control>().Select(control =>
-                        control.Controls.OfType<Label>().FirstOrDefault()?.Text ?? control.Text));
-                statusText = layout.Controls.OfType<Label>().FirstOrDefault()?.Text ?? string.Empty;
+                action();
             }
             catch (Exception ex)
             {
@@ -320,13 +378,7 @@ public sealed class UsagePopupLayoutTests
         thread.SetApartmentState(ApartmentState.STA);
         thread.Start();
         thread.Join();
-
         Assert.Null(error);
-        Assert.Contains("Grok", sectionTitles, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("Codex", sectionTitles, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("Antigravity", sectionTitles, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("Codex", statusText, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("Grok", statusText, StringComparison.OrdinalIgnoreCase);
     }
 
     private static IEnumerable<Control> Descendants(Control root)
