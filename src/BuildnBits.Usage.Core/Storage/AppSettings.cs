@@ -15,6 +15,9 @@ public sealed class AppSettings
     public Dictionary<string, bool> TraySquareVisibility { get; set; } =
         new(StringComparer.OrdinalIgnoreCase);
     public bool LargerTrayDigits { get; set; } = true;
+    public bool FloatingWidgetEnabled { get; set; }
+    public int? FloatingWidgetX { get; set; }
+    public int? FloatingWidgetY { get; set; }
 
     private int _refreshIntervalMinutes = DefaultRefreshIntervalMinutes;
 

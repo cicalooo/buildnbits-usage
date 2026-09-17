@@ -110,4 +110,26 @@ public class AppSettingsTests
         Assert.True(settings.TraySquareVisibility["codex:duration:15"]);
     }
 
+    [Fact]
+    public void Floating_widget_settings_roundtrip()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "bnb-settings-float-" + Guid.NewGuid());
+        var store = new AppSettingsStore(dir);
+        store.Save(new AppSettings
+        {
+            FloatingWidgetEnabled = true,
+            FloatingWidgetX = 120,
+            FloatingWidgetY = 80
+        });
+
+        var loaded = store.Load();
+        var json = File.ReadAllText(store.PathOnDisk);
+
+        Assert.True(loaded.FloatingWidgetEnabled);
+        Assert.Equal(120, loaded.FloatingWidgetX);
+        Assert.Equal(80, loaded.FloatingWidgetY);
+        Assert.Contains("floatingWidgetEnabled", json, StringComparison.Ordinal);
+        Assert.Contains("floatingWidgetX", json, StringComparison.Ordinal);
+    }
+
 }
