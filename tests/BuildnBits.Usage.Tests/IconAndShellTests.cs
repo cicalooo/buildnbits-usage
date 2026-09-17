@@ -27,6 +27,58 @@ public class IconAndShellTests
         Assert.Equal(agy.Width, agy.Height);
     }
 
+    [Theory]
+    [InlineData(10)]
+    [InlineData(88)]
+    [InlineData(92)]
+    [InlineData(100)]
+    public void Larger_digits_keep_ink_inside_the_border(int remaining)
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        using var icon = UsageIconRenderer.Create(
+            ProviderKind.Codex,
+            remaining,
+            highContrast: false,
+            dpiOverride: 96,
+            largerDigits: true);
+        using var bitmap = icon.ToBitmap();
+        Assert.True(bitmap.Width >= 32);
+
+        var inkOnOuterRing = false;
+        var inkOnBottomPadding = false;
+        for (var y = 0; y < bitmap.Height; y++)
+        {
+            for (var x = 0; x < bitmap.Width; x++)
+            {
+                var pixel = bitmap.GetPixel(x, y);
+                var isWhiteInk = pixel.A > 200 && pixel.R > 220 && pixel.G > 220 && pixel.B > 220;
+                if (!isWhiteInk)
+                {
+                    continue;
+                }
+
+                var onOuterRing = x == 0 || y == 0 || x == bitmap.Width - 1 || y == bitmap.Height - 1;
+                if (onOuterRing)
+                {
+                    inkOnOuterRing = true;
+                }
+
+                // Keep the underside of the glyph clear of the bottom border.
+                if (y >= bitmap.Height - 5)
+                {
+                    inkOnBottomPadding = true;
+                }
+            }
+        }
+
+        Assert.False(inkOnOuterRing, $"Digit ink touched the outer border for {remaining}%.");
+        Assert.False(inkOnBottomPadding, $"Digit ink sat too low in the square for {remaining}%.");
+    }
+
     [Fact]
     public void Notify_icon_host_uses_supported_shell_surface()
     {
@@ -188,12 +240,71 @@ public class IconAndShellTests
     }
 
     [Fact]
+    public void Tray_menu_includes_floating_desktop_widget_toggle()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        Exception? error = null;
+        string[] labels = [];
+        var floatingChecked = false;
+        var thread = new Thread(() =>
+        {
+            try
+            {
+                using var host = new NotifyIconHost();
+                var settings = new AppSettings { FloatingWidgetEnabled = true };
+                host.Apply(CombinedUsageState.Empty, launchAtLogin: false, settings);
+                var field = typeof(NotifyIconHost).GetField(
+                    "_icons",
+                    System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+                var icons = (System.Collections.IDictionary?)field?.GetValue(host);
+                Assert.NotNull(icons);
+                Assert.NotEmpty(icons!);
+                var icon = icons.Values.Cast<NotifyIcon>().First();
+                var menu = Assert.IsType<ContextMenuStrip>(icon.ContextMenuStrip);
+                labels = menu.Items.OfType<ToolStripMenuItem>().Select(item => item.Text ?? "").ToArray();
+                floatingChecked = menu.Items.OfType<ToolStripMenuItem>()
+                    .Single(item => item.Text == "Show floating desktop widget")
+                    .Checked;
+            }
+            catch (Exception ex)
+            {
+                error = ex;
+            }
+        });
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+        thread.Join();
+
+        Assert.Null(error);
+        Assert.Contains("Show floating desktop widget", labels);
+        Assert.Contains("Launch at login", labels);
+        Assert.True(floatingChecked);
+    }
+
+    [Fact]
+    public void Tray_context_wires_floating_widget_menu_toggle()
+    {
+        var context = File.ReadAllText(FindSource("BuildnBits.Usage.Tray", "TrayApplicationContext.cs"));
+        var host = File.ReadAllText(FindSource("BuildnBits.Usage.Tray", "Icons", "NotifyIconHost.cs"));
+        var toggle = Block(context, "_icons.FloatingWidgetToggled");
+
+        Assert.Contains("FloatingWidgetToggled", host, StringComparison.Ordinal);
+        Assert.Contains("Show floating desktop widget", host, StringComparison.Ordinal);
+        Assert.Contains("ApplyFloatingWidgetState", toggle, StringComparison.Ordinal);
+        Assert.Contains("ApplyIconsOnUi", toggle, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Grok_popup_renders_every_usage_window()
     {
         var popup = File.ReadAllText(FindSource("BuildnBits.Usage.Tray", "Ui", "UsagePopupForm.cs"));
 
-        Assert.Contains("var grokWindows = snapshot.Windows", popup, StringComparison.Ordinal);
-        Assert.Contains("AddOrderedRows(section, grokWindows)", popup, StringComparison.Ordinal);
+        Assert.Contains("WindowsForPopup(ProviderKind.Grok, snapshot)", popup, StringComparison.Ordinal);
+        Assert.Contains("return snapshot.Windows;", popup, StringComparison.Ordinal);
         Assert.DoesNotContain("snapshot.Weekly ?? snapshot.Windows.FirstOrDefault()", popup, StringComparison.Ordinal);
         Assert.Equal(3, popup.Split("AddOrderedRows(section", StringSplitOptions.None).Length - 1);
     }

@@ -45,17 +45,30 @@ public sealed class UsagePopupForm : Form
         FlatStyle = FlatStyle.Flat,
         Margin = new Padding(0, 4, 8, 6)
     };
+    private readonly CheckBox _pin = new()
+    {
+        Text = "Pin as desktop widget",
+        AutoSize = true,
+        FlatStyle = FlatStyle.Flat,
+        Margin = new Padding(0, 4, 8, 6)
+    };
     private readonly Button _exit = StyledButton("Exit");
     private readonly List<ProviderSection> _sections = [];
     private int _maxPopupHeight = DefaultMaxHeight;
     private CombinedUsageState _boundState = CombinedUsageState.Empty;
+    private AppSettings _boundSettings = new();
     private RefreshProgress _progress = RefreshProgress.Idle;
+    private bool _suppressPinEvent;
+    private bool _restoringLocation;
 
     public event EventHandler? RefreshClicked;
     public event EventHandler? SettingsClicked;
     public event EventHandler? DiagnosticsClicked;
     public event EventHandler? ExitClicked;
     public event EventHandler<bool>? LaunchAtLoginChanged;
+    public event EventHandler<bool>? PinWidgetChanged;
+    public event EventHandler? PinnedLocationChanged;
+    public bool IsPinned => _pin.Checked;
 
     public UsagePopupForm()
     {
@@ -91,6 +104,7 @@ public sealed class UsagePopupForm : Form
         actions.Controls.Add(_settings);
         actions.Controls.Add(_diagnostics);
         actions.Controls.Add(_launch);
+        actions.Controls.Add(_pin);
         actions.Controls.Add(_exit);
         _layout.Controls.Add(actions, 0, 2);
         Controls.Add(_layout);
@@ -100,30 +114,87 @@ public sealed class UsagePopupForm : Form
         _diagnostics.Click += (_, _) => DiagnosticsClicked?.Invoke(this, EventArgs.Empty);
         _exit.Click += (_, _) => ExitClicked?.Invoke(this, EventArgs.Empty);
         _launch.CheckedChanged += (_, _) => LaunchAtLoginChanged?.Invoke(this, _launch.Checked);
-        Deactivate += (_, _) => Hide();
+        _pin.CheckedChanged += (_, _) =>
+        {
+            ApplyPinnedMode();
+            if (!_suppressPinEvent)
+            {
+                PinWidgetChanged?.Invoke(this, _pin.Checked);
+            }
+        };
+        Deactivate += (_, _) =>
+        {
+            if (!IsPinned)
+            {
+                Hide();
+            }
+        };
+        ResizeEnd += (_, _) =>
+        {
+            if (!_restoringLocation && IsPinned && Visible)
+            {
+                PinnedLocationChanged?.Invoke(this, EventArgs.Empty);
+            }
+        };
+        FormClosing += (_, e) =>
+        {
+            if (e.CloseReason != CloseReason.UserClosing)
+            {
+                return;
+            }
+
+            // Keep the singleton popup alive for the tray host; treat Close as unpin/hide.
+            e.Cancel = true;
+            if (IsPinned)
+            {
+                SetPinned(false);
+            }
+
+            Hide();
+        };
         Paint += (_, e) =>
         {
-            using var pen = new Pen(Color.FromArgb(70, 70, 76));
-            e.Graphics.DrawRectangle(pen, 0, 0, Width - 1, Height - 1);
+            if (FormBorderStyle == FormBorderStyle.None)
+            {
+                using var pen = new Pen(Color.FromArgb(70, 70, 76));
+                e.Graphics.DrawRectangle(pen, 0, 0, Width - 1, Height - 1);
+            }
         };
     }
 
-    public void Bind(CombinedUsageState state, bool launchAtLogin)
+    public void Bind(
+        CombinedUsageState state,
+        bool launchAtLogin,
+        AppSettings? settings = null,
+        bool? pinned = null)
     {
         _boundState = state;
+        _boundSettings = settings ?? _boundSettings;
+        _boundSettings.Normalize();
         ClearSections();
-        _sections.Add(BuildCodexSection(state.Codex));
-        _sections.Add(BuildGrokSection(state.Grok));
-        _sections.Add(BuildAgySection(state.Agy));
+        if (IsProviderVisible(ProviderKind.Codex))
+        {
+            _sections.Add(BuildCodexSection(state.Codex));
+        }
+
+        if (IsProviderVisible(ProviderKind.Grok))
+        {
+            _sections.Add(BuildGrokSection(state.Grok));
+        }
+
+        if (IsProviderVisible(ProviderKind.Agy))
+        {
+            _sections.Add(BuildAgySection(state.Agy));
+        }
+
         foreach (var section in _sections)
         {
             _providers.Controls.Add(section);
         }
 
-        var issueSnapshot = new[] { state.Codex, state.Grok, state.Agy }
-            .FirstOrDefault(snapshot => snapshot.Status is not UsageStatus.Ok);
-        var stale = new[] { state.Codex, state.Grok, state.Agy }
-            .Any(snapshot => snapshot.Status is UsageStatus.Stale or UsageStatus.Error);
+        var visibleSnapshots = VisibleSnapshots(state).ToArray();
+        var issueSnapshot = visibleSnapshots.FirstOrDefault(snapshot => snapshot.Status is not UsageStatus.Ok);
+        var stale = visibleSnapshots.Any(snapshot => snapshot.Status is UsageStatus.Stale or UsageStatus.Error);
         var detail = issueSnapshot?.StatusMessage is { } message
             ? AppLog.Sanitize(message)
             : issueSnapshot?.Status is UsageStatus.Unknown
@@ -131,6 +202,11 @@ public sealed class UsagePopupForm : Form
                 : stale ? "Showing last successful values." : "Up to date.";
         UpdateStatus(detail);
         _launch.Checked = launchAtLogin;
+        if (pinned is not null)
+        {
+            SetPinned(pinned.Value, raiseEvent: false);
+        }
+
         ApplyTheme();
         ResizeForContent();
     }
@@ -140,18 +216,21 @@ public sealed class UsagePopupForm : Form
         _progress = progress;
         _refresh.Enabled = !progress.IsRefreshing;
         UpdateStatus();
-        ResizeForContent();
+        // Pinned widgets keep a stable size during refresh status churn.
+        if (!IsPinned)
+        {
+            ResizeForContent();
+        }
     }
 
     private void UpdateStatus(string? detail = null)
     {
         var state = _boundState;
+        var visibleSnapshots = VisibleSnapshots(state).ToArray();
         if (detail is null)
         {
-            var issueSnapshot = new[] { state.Codex, state.Grok, state.Agy }
-                .FirstOrDefault(snapshot => snapshot.Status is not UsageStatus.Ok);
-            var stale = new[] { state.Codex, state.Grok, state.Agy }
-                .Any(snapshot => snapshot.Status is UsageStatus.Stale or UsageStatus.Error);
+            var issueSnapshot = visibleSnapshots.FirstOrDefault(snapshot => snapshot.Status is not UsageStatus.Ok);
+            var stale = visibleSnapshots.Any(snapshot => snapshot.Status is UsageStatus.Stale or UsageStatus.Error);
             detail = issueSnapshot?.StatusMessage is { } message
                 ? AppLog.Sanitize(message)
                 : issueSnapshot?.Status is UsageStatus.Unknown
@@ -159,19 +238,59 @@ public sealed class UsagePopupForm : Form
                     : stale ? "Showing last successful values." : "Up to date.";
         }
 
-        var providerLine =
-            $"Codex {state.Codex.Status} ({RefreshAge(state.Codex.FetchedAtUtc)}) · " +
-            $"Grok {state.Grok.Status} ({RefreshAge(state.Grok.FetchedAtUtc)}) · " +
-            $"Antigravity {state.Agy.Status} ({RefreshAge(state.Agy.FetchedAtUtc)})";
+        var providerLine = visibleSnapshots.Length == 0
+            ? "No providers selected in Settings."
+            : string.Join(
+                " · ",
+                visibleSnapshots.Select(snapshot =>
+                    $"{ProviderLabel(snapshot.Provider)} {snapshot.Status} ({RefreshAge(snapshot.FetchedAtUtc)})"));
         if (_progress.IsRefreshing)
         {
-            var pending = _progress.PendingProviders.Count == 0
-                ? "finishing"
-                : string.Join(", ", _progress.PendingProviders.Select(ProviderLabel));
-            detail = $"Refreshing — waiting for {pending}.";
+            var pending = _progress.PendingProviders
+                .Where(IsProviderVisible)
+                .Select(ProviderLabel)
+                .ToArray();
+            detail = pending.Length == 0
+                ? "Refreshing — finishing."
+                : $"Refreshing — waiting for {string.Join(", ", pending)}.";
         }
 
         _status.Text = $"{providerLine}{Environment.NewLine}{detail}";
+    }
+
+    private bool IsProviderVisible(ProviderKind provider) =>
+        TraySquareCatalog.Build(_boundState)
+            .Where(option => option.Provider == provider)
+            .Any(option => _boundSettings.IsTraySquareVisible(option.Key, option.Provider));
+
+    private IEnumerable<ProviderSnapshot> VisibleSnapshots(CombinedUsageState state)
+    {
+        if (IsProviderVisible(ProviderKind.Codex))
+        {
+            yield return state.Codex;
+        }
+
+        if (IsProviderVisible(ProviderKind.Grok))
+        {
+            yield return state.Grok;
+        }
+
+        if (IsProviderVisible(ProviderKind.Agy))
+        {
+            yield return state.Agy;
+        }
+    }
+
+    private IReadOnlyList<UsageWindow> WindowsForPopup(ProviderKind provider, ProviderSnapshot snapshot)
+    {
+        // Grok's only tray square is Build; when it is enabled, show the full Grok snapshot
+        // (Build, Bot, etc.) in the popup.
+        if (provider == ProviderKind.Grok)
+        {
+            return snapshot.Windows;
+        }
+
+        return TraySquareCatalog.SelectedWindows(_boundState, provider, _boundSettings);
     }
 
     private static string ProviderLabel(ProviderKind provider) => provider switch
@@ -183,6 +302,12 @@ public sealed class UsagePopupForm : Form
 
     public void ShowNearCursor()
     {
+        if (IsPinned && Visible)
+        {
+            Activate();
+            return;
+        }
+
         var pos = Cursor.Position;
         var area = Screen.FromPoint(pos).WorkingArea;
         _maxPopupHeight = Math.Max(MinimumSize.Height, (int)(area.Height * 0.70));
@@ -193,6 +318,90 @@ public sealed class UsagePopupForm : Form
         Location = new Point(x, y);
         Show();
         Activate();
+    }
+
+    public void SetPinned(bool pinned, bool raiseEvent = true)
+    {
+        if (_pin.Checked == pinned)
+        {
+            ApplyPinnedMode();
+            return;
+        }
+
+        var previous = _suppressPinEvent;
+        _suppressPinEvent = !raiseEvent;
+        try
+        {
+            _pin.Checked = pinned;
+        }
+        finally
+        {
+            _suppressPinEvent = previous;
+        }
+    }
+
+    public void ApplyFloatingLocation(int? x, int? y)
+    {
+        if (x is null || y is null)
+        {
+            return;
+        }
+
+        var candidate = new Point(x.Value, y.Value);
+        var area = Screen.FromPoint(candidate).WorkingArea;
+        var clamped = new Point(
+            Math.Min(Math.Max(area.Left, candidate.X), Math.Max(area.Left, area.Right - Width)),
+            Math.Min(Math.Max(area.Top, candidate.Y), Math.Max(area.Top, area.Bottom - Height)));
+        _restoringLocation = true;
+        try
+        {
+            Location = clamped;
+        }
+        finally
+        {
+            _restoringLocation = false;
+        }
+    }
+
+    private void ApplyPinnedMode()
+    {
+        ShowInTaskbar = IsPinned;
+        TopMost = true;
+        Text = IsPinned ? "BuildnBits Usage (pinned)" : "BuildnBits Usage";
+        if (IsPinned)
+        {
+            FormBorderStyle = FormBorderStyle.SizableToolWindow;
+            // MaximumSize is the outer window size. Keeping the borderless popup's width cap
+            // after the tool-window chrome appears crushes the client area on refresh.
+            var area = Screen.PrimaryScreen?.WorkingArea ?? new Rectangle(0, 0, 1280, 720);
+            if (IsHandleCreated)
+            {
+                area = Screen.FromControl(this).WorkingArea;
+            }
+
+            var chromeX = Math.Max(0, Width - ClientSize.Width);
+            var chromeY = Math.Max(0, Height - ClientSize.Height);
+            MaximumSize = new Size(area.Width, area.Height);
+            MinimumSize = new Size(PopupWidth + chromeX, 180 + chromeY);
+            if (ClientSize.Width < PopupWidth)
+            {
+                ClientSize = new Size(PopupWidth, Math.Max(ClientSize.Height, 180));
+            }
+
+            ResizeForContent();
+            if (!Visible)
+            {
+                Show();
+            }
+
+            Activate();
+        }
+        else
+        {
+            FormBorderStyle = FormBorderStyle.None;
+            MinimumSize = new Size(PopupWidth, 180);
+            MaximumSize = new Size(PopupWidth, _maxPopupHeight);
+        }
     }
 
     private static void AddOrderedRows(ProviderSection section, IEnumerable<UsageWindow> windows)
@@ -208,34 +417,36 @@ public sealed class UsagePopupForm : Form
     private ProviderSection BuildCodexSection(ProviderSnapshot snapshot)
     {
         var section = new ProviderSection("Codex", snapshot, UsageIconRenderer.CodexColor);
-        if (HasUsageRows(snapshot))
+        var windows = WindowsForPopup(ProviderKind.Codex, snapshot);
+        if (HasUsageRows(snapshot) && windows.Count > 0)
         {
-            AddOrderedRows(section, snapshot.Windows);
+            AddOrderedRows(section, windows);
         }
 
         section.Finish();
         return section;
     }
 
-    private static ProviderSection BuildGrokSection(ProviderSnapshot snapshot)
+    private ProviderSection BuildGrokSection(ProviderSnapshot snapshot)
     {
         var section = new ProviderSection("Grok", snapshot, UsageIconRenderer.GrokColor);
-        if (HasUsageRows(snapshot))
+        var windows = WindowsForPopup(ProviderKind.Grok, snapshot);
+        if (HasUsageRows(snapshot) && windows.Count > 0)
         {
-            var grokWindows = snapshot.Windows.ToList();
-            AddOrderedRows(section, grokWindows);
+            AddOrderedRows(section, windows);
         }
 
         section.Finish();
         return section;
     }
 
-    private static ProviderSection BuildAgySection(ProviderSnapshot snapshot)
+    private ProviderSection BuildAgySection(ProviderSnapshot snapshot)
     {
         var section = new ProviderSection("Antigravity", snapshot, UsageIconRenderer.AgyColor);
-        if (HasUsageRows(snapshot))
+        var windows = WindowsForPopup(ProviderKind.Agy, snapshot);
+        if (HasUsageRows(snapshot) && windows.Count > 0)
         {
-            AddOrderedRows(section, snapshot.Windows);
+            AddOrderedRows(section, windows);
         }
 
         section.Finish();
@@ -275,6 +486,7 @@ public sealed class UsagePopupForm : Form
         _providers.BackColor = BackColor;
         _layout.BackColor = BackColor;
         _launch.ForeColor = ForeColor;
+        _pin.ForeColor = ForeColor;
         foreach (var section in _sections)
         {
             section.ApplyTheme(dark, highContrast);
@@ -283,13 +495,50 @@ public sealed class UsagePopupForm : Form
 
     private void ResizeForContent()
     {
-        var providerHeight = _sections.Sum(section => section.Height + section.Margin.Vertical) + 2;
-        var statusHeight = _status.GetPreferredSize(new Size(PopupWidth - Padding.Horizontal, 0)).Height;
-        var actionsHeight = _layout.GetControlFromPosition(0, 2)?.GetPreferredSize(
-            new Size(PopupWidth - Padding.Horizontal, 0)).Height ?? 36;
-        var desired = Padding.Vertical + providerHeight + statusHeight + actionsHeight + 8;
-        ClientSize = new Size(PopupWidth, Math.Clamp(desired, MinimumSize.Height, _maxPopupHeight));
-        _layout.PerformLayout();
+        SuspendLayout();
+        try
+        {
+            _layout.PerformLayout();
+            var providerHeight = _sections.Sum(section => section.Height + section.Margin.Vertical) + 2;
+            var statusHeight = _status.GetPreferredSize(new Size(PopupWidth - Padding.Horizontal, 0)).Height;
+            var actionsHeight = _layout.GetControlFromPosition(0, 2)?.GetPreferredSize(
+                new Size(PopupWidth - Padding.Horizontal, 0)).Height ?? 36;
+            var desired = Padding.Vertical + providerHeight + statusHeight + actionsHeight + 8;
+
+            var maxClientHeight = _maxPopupHeight;
+            if (IsPinned)
+            {
+                var area = Screen.PrimaryScreen?.WorkingArea ?? new Rectangle(0, 0, 1280, 720);
+                if (IsHandleCreated)
+                {
+                    area = Screen.FromControl(this).WorkingArea;
+                }
+
+                var chromeY = Math.Max(0, Height - ClientSize.Height);
+                maxClientHeight = Math.Max(200, area.Height - chromeY);
+            }
+
+            var desiredHeight = Math.Clamp(desired, 180, maxClientHeight);
+            if (IsPinned)
+            {
+                var width = Math.Max(PopupWidth, ClientSize.Width);
+                // Fit content after rebuilds; keep a taller size only if the user resized it up.
+                var height = ClientSize.Height > desiredHeight + 24
+                    ? ClientSize.Height
+                    : desiredHeight;
+                ClientSize = new Size(width, height);
+            }
+            else
+            {
+                ClientSize = new Size(PopupWidth, desiredHeight);
+            }
+
+            _layout.PerformLayout();
+        }
+        finally
+        {
+            ResumeLayout(true);
+        }
     }
 
     private static string RefreshAge(DateTimeOffset? updatedAtUtc)
@@ -339,7 +588,10 @@ public sealed class UsagePopupForm : Form
     protected override void OnLostFocus(EventArgs e)
     {
         base.OnLostFocus(e);
-        Hide();
+        if (!IsPinned)
+        {
+            Hide();
+        }
     }
 }
 
@@ -478,10 +730,11 @@ internal sealed class UsageRow : UserControl
     public UsageRow(string label, Color accent)
     {
         _accent = accent;
-        Height = 30;
+        // Tall enough for the percent glyphs above the bottom progress bar.
+        Height = 36;
         Width = 406;
         Margin = new Padding(0, 0, 0, 3);
-        Padding = new Padding(6, 1, 6, 6);
+        Padding = new Padding(6, 3, 6, 8);
         _label = new Label
         {
             AutoSize = false,
@@ -496,8 +749,10 @@ internal sealed class UsageRow : UserControl
             AutoSize = false,
             Dock = DockStyle.Fill,
             TextAlign = ContentAlignment.MiddleRight,
-            Font = new Font("Segoe UI Semibold", 14f, FontStyle.Bold),
-            Width = 52
+            // Semibold family + Bold style was optically too tall for the row.
+            Font = new Font("Segoe UI Semibold", 12f, FontStyle.Regular),
+            Width = 56,
+            UseMnemonic = false
         };
         _caption = new Label
         {
@@ -517,7 +772,7 @@ internal sealed class UsageRow : UserControl
             BackColor = Color.Transparent
         };
         content.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 55));
-        content.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 52));
+        content.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 56));
         content.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 134));
         content.Controls.Add(_label, 0, 0);
         content.Controls.Add(_percent, 1, 0);
@@ -572,7 +827,7 @@ internal sealed class UsageRow : UserControl
         e.Graphics.FillRectangle(fill, bounds);
         using var border = new Pen(_highContrast ? SystemColors.WindowText : Color.FromArgb(50, _accent));
         e.Graphics.DrawRectangle(border, bounds);
-        var bar = new Rectangle(6, Height - 5, Math.Max(1, Width - 12), 3);
+        var bar = new Rectangle(6, Height - 6, Math.Max(1, Width - 12), 3);
         using var track = new SolidBrush(_highContrast ? SystemColors.WindowText : Color.FromArgb(55, _accent));
         e.Graphics.FillRectangle(track, bar);
         using var value = new SolidBrush(_highContrast ? SystemColors.WindowText : _accent);

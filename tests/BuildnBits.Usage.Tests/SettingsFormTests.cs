@@ -320,6 +320,62 @@ public sealed class SettingsFormTests
         Assert.False(fileExists);
     }
 
+    [Fact]
+    public void Saving_floating_widget_checkbox_persists_enabled_flag()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var dir = Path.Combine(Path.GetTempPath(), "bnb-settings-float-ui-" + Guid.NewGuid());
+        var store = new AppSettingsStore(dir);
+        var current = new AppSettings
+        {
+            FloatingWidgetEnabled = false,
+            FloatingWidgetX = 40,
+            FloatingWidgetY = 60
+        };
+        Exception? error = null;
+        AppSettings? loaded = null;
+        var thread = new Thread(() =>
+        {
+            try
+            {
+                using var form = new SettingsForm(
+                    current,
+                    store,
+                    Path.Combine(dir, "usage-cache.json"),
+                    CombinedUsageState.Empty);
+                form.Show();
+                form.PerformLayout();
+                Descendants(form)
+                    .OfType<CheckBox>()
+                    .Single(check => check.Text == "Show floating desktop widget")
+                    .Checked = true;
+                Descendants(form)
+                    .OfType<Button>()
+                    .Single(button => button.Text == "OK")
+                    .PerformClick();
+                loaded = store.Load();
+                form.Close();
+            }
+            catch (Exception ex)
+            {
+                error = ex;
+            }
+        });
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+        thread.Join();
+
+        Assert.Null(error);
+        Assert.NotNull(loaded);
+        Assert.True(loaded!.FloatingWidgetEnabled);
+        Assert.Equal(40, loaded.FloatingWidgetX);
+        Assert.Equal(60, loaded.FloatingWidgetY);
+    }
+
     private static IEnumerable<Control> Descendants(Control root)
     {
         foreach (Control child in root.Controls)

@@ -24,6 +24,7 @@ public sealed class NotifyIconHost : IDisposable
     public event EventHandler? DiagnosticsRequested;
     public event EventHandler? ExitRequested;
     public event EventHandler<bool>? LaunchAtLoginToggled;
+    public event EventHandler<bool>? FloatingWidgetToggled;
     public event EventHandler<int>? RefreshIntervalRequested;
 
     public NotifyIconHost()
@@ -142,10 +143,17 @@ public sealed class NotifyIconHost : IDisposable
 
         menu.Items.Add(intervalMenu);
         menu.Items.Add("Settings", null, (_, _) => SettingsRequested?.Invoke(this, EventArgs.Empty));
+        menu.Items.Add("Diagnostics", null, (_, _) => DiagnosticsRequested?.Invoke(this, EventArgs.Empty));
         var login = new ToolStripMenuItem("Launch at login") { Checked = launchAtLogin, CheckOnClick = true };
         login.CheckedChanged += (_, _) => LaunchAtLoginToggled?.Invoke(this, login.Checked);
         menu.Items.Add(login);
-        menu.Items.Add("Diagnostics", null, (_, _) => DiagnosticsRequested?.Invoke(this, EventArgs.Empty));
+        var floating = new ToolStripMenuItem("Show floating desktop widget")
+        {
+            Checked = _settings.FloatingWidgetEnabled,
+            CheckOnClick = true
+        };
+        floating.CheckedChanged += (_, _) => FloatingWidgetToggled?.Invoke(this, floating.Checked);
+        menu.Items.Add(floating);
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("Exit", null, (_, _) => ExitRequested?.Invoke(this, EventArgs.Empty));
         return menu;

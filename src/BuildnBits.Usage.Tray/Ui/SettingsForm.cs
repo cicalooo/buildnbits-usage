@@ -12,6 +12,19 @@ public sealed class SettingsForm : Form
     private readonly string _cachePath;
     private readonly CheckBox _launch = new() { Text = "Launch at login", AutoSize = true };
     private readonly CheckBox _larger = new() { Text = "Larger tray digits", AutoSize = true };
+    private readonly CheckBox _floating = new()
+    {
+        Text = "Show floating desktop widget",
+        AutoSize = true,
+        Margin = new Padding(0, 8, 0, 0)
+    };
+    private readonly Label _floatingHelp = new()
+    {
+        AutoSize = true,
+        MaximumSize = new Size(460, 0),
+        ForeColor = SystemColors.GrayText,
+        Text = "Pins the usage panel on the desktop. You can also toggle this from the Pin as desktop widget checkbox in the panel."
+    };
     private readonly ComboBox _interval = new()
     {
         DropDownStyle = ComboBoxStyle.DropDownList,
@@ -27,6 +40,7 @@ public sealed class SettingsForm : Form
         Enabled = false,
         MaximumSize = new Size(460, 0),
         ForeColor = SystemColors.GrayText,
+        Margin = new Padding(0, 12, 0, 0),
         Text =
             "Widgets Board card — Future Plan (disabled).\n" +
             "Windows only lists widgets from an installed MSIX package. This is not offered in the portable or unpackaged tray."
@@ -50,7 +64,7 @@ public sealed class SettingsForm : Form
         FormBorderStyle = FormBorderStyle.FixedDialog;
         StartPosition = FormStartPosition.CenterScreen;
         AutoScaleMode = AutoScaleMode.Dpi;
-        ClientSize = new Size(520, 460);
+        ClientSize = new Size(520, 520);
         MaximizeBox = false;
         MinimizeBox = false;
         Font = new Font("Segoe UI", 9.5f);
@@ -58,6 +72,7 @@ public sealed class SettingsForm : Form
 
         _launch.Checked = LaunchAtLogin.IsEnabled();
         _larger.Checked = current.LargerTrayDigits;
+        _floating.Checked = current.FloatingWidgetEnabled;
         _interval.Items.AddRange(["3 minutes", "5 minutes (default)", "10 minutes"]);
         _interval.SelectedIndex = current.RefreshIntervalMinutes switch
         {
@@ -94,6 +109,8 @@ public sealed class SettingsForm : Form
         layout.Controls.Add(_launch);
         layout.Controls.Add(BuildTraySquareGroup(trayOptions, current));
         layout.Controls.Add(_larger);
+        layout.Controls.Add(_floating);
+        layout.Controls.Add(_floatingHelp);
         var intervalRow = new FlowLayoutPanel
         {
             AutoSize = true,
@@ -132,6 +149,9 @@ public sealed class SettingsForm : Form
                     currentVisibility,
                     StringComparer.OrdinalIgnoreCase),
                 LargerTrayDigits = _larger.Checked,
+                FloatingWidgetEnabled = _floating.Checked,
+                FloatingWidgetX = current.FloatingWidgetX,
+                FloatingWidgetY = current.FloatingWidgetY,
                 RefreshIntervalMinutes = _interval.SelectedIndex switch
                 {
                     0 => 3,

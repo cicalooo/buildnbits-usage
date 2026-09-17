@@ -49,6 +49,23 @@ public sealed class TrayApplicationContext : ApplicationContext
             LaunchAtLogin.SetEnabled(enabled);
             ApplyIconsOnUi();
         };
+        _icons.FloatingWidgetToggled += (_, enabled) =>
+        {
+            _settings.FloatingWidgetEnabled = enabled;
+            if (enabled)
+            {
+                if (_settings.FloatingWidgetX is null || _settings.FloatingWidgetY is null)
+                {
+                    var area = Screen.PrimaryScreen?.WorkingArea ?? new Rectangle(0, 0, 800, 600);
+                    _settings.FloatingWidgetX = area.Right - 430 - 24;
+                    _settings.FloatingWidgetY = area.Top + 24;
+                }
+            }
+
+            _settingsStore.Save(_settings);
+            ApplyFloatingWidgetState(forceShow: enabled);
+            ApplyIconsOnUi();
+        };
 
         _popup.RefreshClicked += (_, _) => RequestRefresh();
         _popup.SettingsClicked += (_, _) => OpenSettings();
@@ -59,6 +76,29 @@ public sealed class TrayApplicationContext : ApplicationContext
             _launchAtLogin = enabled;
             LaunchAtLogin.SetEnabled(enabled);
             ApplyIconsOnUi();
+        };
+        _popup.PinWidgetChanged += (_, enabled) =>
+        {
+            _settings.FloatingWidgetEnabled = enabled;
+            if (enabled)
+            {
+                _settings.FloatingWidgetX = _popup.Location.X;
+                _settings.FloatingWidgetY = _popup.Location.Y;
+            }
+
+            _settingsStore.Save(_settings);
+            ApplyIconsOnUi();
+        };
+        _popup.PinnedLocationChanged += (_, _) =>
+        {
+            if (!_settings.FloatingWidgetEnabled)
+            {
+                return;
+            }
+
+            _settings.FloatingWidgetX = _popup.Location.X;
+            _settings.FloatingWidgetY = _popup.Location.Y;
+            _settingsStore.Save(_settings);
         };
 
         var ui = SynchronizationContext.Current;
@@ -75,7 +115,7 @@ public sealed class TrayApplicationContext : ApplicationContext
                 _icons.Apply(state, _launchAtLogin, _settings);
                 if (_popup.Visible)
                 {
-                    _popup.Bind(state, _launchAtLogin);
+                    _popup.Bind(state, _launchAtLogin, _settings);
                 }
             }
 
@@ -136,11 +176,29 @@ public sealed class TrayApplicationContext : ApplicationContext
 
         _icons.Apply(_refresh.Current, _launchAtLogin, _settings);
         _refresh.Start();
+        ApplyFloatingWidgetState(forceShow: _settings.FloatingWidgetEnabled);
     }
 
     private void ShowPopup()
     {
-        _popup.Bind(_refresh.Current, _launchAtLogin);
+        _popup.Bind(
+            _refresh.Current,
+            _launchAtLogin,
+            _settings,
+            pinned: _settings.FloatingWidgetEnabled);
+        if (_settings.FloatingWidgetEnabled)
+        {
+            _popup.ApplyFloatingLocation(_settings.FloatingWidgetX, _settings.FloatingWidgetY);
+            _popup.SetPinned(true, raiseEvent: false);
+            if (!_popup.Visible)
+            {
+                _popup.Show();
+            }
+
+            _popup.Activate();
+            return;
+        }
+
         _popup.ShowNearCursor();
     }
 
@@ -153,14 +211,49 @@ public sealed class TrayApplicationContext : ApplicationContext
             _refresh.Current);
         if (dialog.ShowDialog() == DialogResult.OK)
         {
+            var wasFloating = _settings.FloatingWidgetEnabled;
             _settings = dialog.Result;
             _launchAtLogin = LaunchAtLogin.IsEnabled();
             _refresh.UpdateInterval(TimeSpan.FromMinutes(_settings.RefreshIntervalMinutes));
             _icons.Apply(_refresh.Current, _launchAtLogin, _settings);
+            ApplyFloatingWidgetState(forceShow: _settings.FloatingWidgetEnabled && !wasFloating);
             if (_popup.Visible)
             {
-                _popup.Bind(_refresh.Current, _launchAtLogin);
+                _popup.Bind(
+                    _refresh.Current,
+                    _launchAtLogin,
+                    _settings,
+                    pinned: _settings.FloatingWidgetEnabled);
             }
+        }
+    }
+
+    private void ApplyFloatingWidgetState(bool forceShow)
+    {
+        if (_settings.FloatingWidgetEnabled)
+        {
+            _popup.Bind(_refresh.Current, _launchAtLogin, _settings, pinned: true);
+            if (_settings.FloatingWidgetX is not null && _settings.FloatingWidgetY is not null)
+            {
+                _popup.ApplyFloatingLocation(_settings.FloatingWidgetX, _settings.FloatingWidgetY);
+            }
+            else if (forceShow || !_popup.Visible)
+            {
+                var area = Screen.PrimaryScreen?.WorkingArea ?? new Rectangle(0, 0, 800, 600);
+                _popup.ApplyFloatingLocation(area.Right - _popup.Width - 24, area.Top + 24);
+                _settings.FloatingWidgetX = _popup.Location.X;
+                _settings.FloatingWidgetY = _popup.Location.Y;
+                _settingsStore.Save(_settings);
+            }
+
+            _popup.SetPinned(true, raiseEvent: false);
+            return;
+        }
+
+        if (_popup.IsPinned)
+        {
+            _popup.SetPinned(false, raiseEvent: false);
+            _popup.Hide();
         }
     }
 
@@ -276,7 +369,11 @@ public sealed class TrayApplicationContext : ApplicationContext
         _icons.Apply(_refresh.Current, _launchAtLogin, _settings);
         if (_popup.Visible)
         {
-            _popup.Bind(_refresh.Current, _launchAtLogin);
+            _popup.Bind(
+                _refresh.Current,
+                _launchAtLogin,
+                _settings,
+                pinned: _settings.FloatingWidgetEnabled);
         }
     }
 }
